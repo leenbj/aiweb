@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SSE Test</title>
+</head>
+<body>
+    <h1>SSE Test</h1>
+    <div id="messages"></div>
+    <button onclick="testSSE()">Test Chat Stream</button>
+    
+    <script>
+    async function testSSE() {
+        console.log('🌊 开始SSE测试');
+        const messagesDiv = document.getElementById('messages');
+        
+        try {
+            // 获取token
+            const loginResponse = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: 'demo@example.com', password: 'demo123' })
+            });
+            const loginData = await loginResponse.json();
+            const token = loginData.data.token;
+            console.log('🔑 获取到token:', token.substring(0, 20) + '...');
+            
+            // 开始SSE请求
+            const response = await fetch('/api/ai/chat-stream', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    message: '你好',
+                    conversationHistory: [],
+                    stage: 'gathering',
+                    requirements: {}
+                })
+            });
+            
+            console.log('📡 SSE响应状态:', response.status);
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = '';
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    console.log('🏁 SSE读取完成');
+                    break;
+                }
+                
+                const chunk = decoder.decode(value);
+                console.log('📥 原始数据块:', chunk);
+                
+                const lines = chunk.split('\n');
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            console.log('📦 解析数据:', data);
+                            
+                            if (data.type === 'chunk') {
+                                fullText += data.content;
+                                console.log('🔤 累积文本:', fullText);
+                                
+                                // 实时显示
+                                messagesDiv.innerHTML = `<p>实时文本: ${fullText}</p>`;
+                            }
+                        } catch (e) {
+                            console.warn('⚠️ 解析错误:', line, e);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('❌ SSE测试失败:', error);
+            messagesDiv.innerHTML = `<p style="color: red;">错误: ${error.message}</p>`;
+        }
+    }
+    </script>
+</body>
+</html>
+
+
+

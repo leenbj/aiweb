@@ -1,0 +1,177 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      String   @default("user")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  websites      Website[]
+  conversations AIConversation[]
+  settings      UserSettings?
+  tokenUsage    TokenUsage[]
+
+  @@map("users")
+}
+
+model Website {
+  id             String   @id @default(cuid())
+  userId         String
+  domain         String   @unique
+  title          String
+  description    String?
+  content        String   @db.Text
+  html           String?  @db.Text
+  css            String?  @db.Text
+  js             String?  @db.Text
+  deploymentPath String?
+  status         String   @default("draft")
+  sslStatus      String   @default("pending")
+  dnsStatus      String   @default("pending")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deployedAt     DateTime?
+
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations   AIConversation[]
+  deployments     Deployment[]
+  websiteBackups  WebsiteBackup[]
+
+  @@map("websites")
+}
+
+model AIConversation {
+  id        String   @id @default(cuid())
+  userId    String
+  websiteId String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  website  Website     @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  messages AIMessage[]
+
+  @@map("ai_conversations")
+}
+
+model AIMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           String
+  content        String   @db.Text
+  websiteChanges Json?
+  createdAt      DateTime @default(now())
+
+  conversation AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("ai_messages")
+}
+
+model Deployment {
+  id         String   @id @default(cuid())
+  websiteId  String
+  domain     String
+  status     String
+  serverPath String
+  logs       String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  website Website @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+
+  @@map("deployments")
+}
+
+model ServerConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String   @db.Text
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("server_configs")
+}
+
+model DomainConfig {
+  id            String   @id @default(cuid())
+  domain        String   @unique
+  serverPath    String
+  nginxConfig   String   @db.Text
+  sslCertPath   String?
+  sslStatus     String   @default("pending")
+  dnsStatus     String   @default("pending")
+  isActive      Boolean  @default(true)
+  lastChecked   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("domain_configs")
+}
+
+model UserSettings {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  deepseekApiKey    String?  @map("deepseek_api_key")
+  openaiApiKey      String?  @map("openai_api_key")
+  anthropicApiKey   String?  @map("anthropic_api_key")
+  aiProvider        String   @default("deepseek") @map("ai_provider")
+  deepseekModel     String?  @map("deepseek_model")
+  openaiModel       String?  @map("openai_model")
+  anthropicModel    String?  @map("anthropic_model")
+  systemPrompt      String?  @map("system_prompt") // 保留向后兼容性
+  chatPrompt        String?  @map("chat_prompt") // 对话聊天提示词
+  generatePrompt    String?  @map("generate_prompt") // 网站生成提示词
+  editPrompt        String?  @map("edit_prompt") // 网站编辑提示词
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+model TokenUsage {
+  id         String   @id @default(cuid())
+  userId     String
+  date       DateTime @db.Date
+  hour       Int?     @default(0) // 新增小时字段，0-23
+  tokensUsed Int      @default(0) @map("tokens_used")
+  costRmb    Decimal  @default(0) @db.Decimal(10, 4) @map("cost_rmb")
+  provider   String
+  model      String?  // 新增模型字段
+  operation  String?  // 新增操作类型字段 (generate, edit, optimize, etc.)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date, hour, provider])
+  @@map("token_usage")
+}
+
+model WebsiteBackup {
+  id        String   @id @default(cuid())
+  websiteId String
+  version   Int
+  html      String?  @db.Text
+  css       String?  @db.Text
+  js        String?  @db.Text
+  createdAt DateTime @default(now())
+
+  website Website @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+
+  @@unique([websiteId, version])
+  @@map("website_backups")
+}
