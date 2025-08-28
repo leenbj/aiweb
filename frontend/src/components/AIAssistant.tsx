@@ -112,7 +112,37 @@ function extractPureHtml(content: string): string | null {
   // 4. 移除多余的空白和换行
   cleanContent = cleanContent.replace(/\n{3,}/g, '\n\n').trim();
 
-  // 5. 验证是否是有效的HTML代码
+  // 5. 过滤不完整的标签序列（如<html<head<body）
+  const incompleteTagPatterns = [
+    /^<html<head<body.*$/,  // 开头就是不完整的标签序列
+    /^<html<head.*$/,       // 不完整的html+head序列
+    /^<head<body.*$/,       // 不完整的head+body序列
+    /^<html<body.*$/,       // 不完整的html+body序列
+    /^<[^>]+<[^>]+<[^>]+.*$/, // 连续多个不完整的开始标签
+  ];
+
+  for (const pattern of incompleteTagPatterns) {
+    if (pattern.test(cleanContent)) {
+      console.log('过滤掉不完整的标签序列:', cleanContent.substring(0, 50) + '...');
+      return null;
+    }
+  }
+
+  // 6. 检查是否有重复的开始标签
+  const duplicateStartTags = [
+    /<html[^>]*>.*<html[^>]*>/,  // 重复的html标签
+    /<head[^>]*>.*<head[^>]*>/,  // 重复的head标签
+    /<body[^>]*>.*<body[^>]*>/,  // 重复的body标签
+  ];
+
+  for (const pattern of duplicateStartTags) {
+    if (pattern.test(cleanContent)) {
+      console.log('过滤掉重复的开始标签:', cleanContent.substring(0, 50) + '...');
+      return null;
+    }
+  }
+
+  // 7. 验证是否是有效的HTML代码
   const isValidHtml = (
     cleanContent.includes('<!DOCTYPE html>') ||
     cleanContent.includes('<html') ||
@@ -121,11 +151,17 @@ function extractPureHtml(content: string): string | null {
       cleanContent.includes('<div') || cleanContent.includes('<section')))
   );
 
-  // 6. 确保内容长度合理且包含HTML标签
+  // 8. 确保内容长度合理且包含HTML标签
   const hasHtmlTags = /<[^>]+>/.test(cleanContent);
   const isReasonableLength = cleanContent.length > 20 && cleanContent.length < 50000;
 
-  if (isValidHtml && hasHtmlTags && isReasonableLength) {
+  // 9. 确保HTML结构基本完整
+  const hasBasicStructure = (
+    cleanContent.includes('<html') || // 有html标签，或者
+    (cleanContent.includes('<head') && cleanContent.includes('<body')) // 既有head又有body
+  );
+
+  if (isValidHtml && hasHtmlTags && isReasonableLength && hasBasicStructure) {
     return cleanContent;
   }
 
@@ -478,7 +514,6 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
     try {
       switch (eventData.type) {
         case 'html_chunk':
-        case 'html':
           // HTML代码块 - 实时流式显示
           if (onCodeUpdate) {
             let codeToDisplay = '';

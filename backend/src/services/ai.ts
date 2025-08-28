@@ -44,7 +44,37 @@ function extractPureHtmlFromResponse(content: string): string | null {
   // 3. 移除多余的空白和换行
   cleanContent = cleanContent.replace(/\n{3,}/g, '\n\n').trim();
 
-  // 4. 验证是否是有效的HTML代码
+  // 4. 过滤不完整的标签序列（如<html<head<body）
+  const incompleteTagPatterns = [
+    /^<html<head<body.*$/,  // 开头就是不完整的标签序列
+    /^<html<head.*$/,       // 不完整的html+head序列
+    /^<head<body.*$/,       // 不完整的head+body序列
+    /^<html<body.*$/,       // 不完整的html+body序列
+    /^<[^>]+<[^>]+<[^>]+.*$/, // 连续多个不完整的开始标签
+  ];
+
+  for (const pattern of incompleteTagPatterns) {
+    if (pattern.test(cleanContent)) {
+      console.log('过滤掉不完整的标签序列:', cleanContent.substring(0, 50) + '...');
+      return null;
+    }
+  }
+
+  // 5. 检查是否有重复的开始标签
+  const duplicateStartTags = [
+    /<html[^>]*>.*<html[^>]*>/,  // 重复的html标签
+    /<head[^>]*>.*<head[^>]*>/,  // 重复的head标签
+    /<body[^>]*>.*<body[^>]*>/,  // 重复的body标签
+  ];
+
+  for (const pattern of duplicateStartTags) {
+    if (pattern.test(cleanContent)) {
+      console.log('过滤掉重复的开始标签:', cleanContent.substring(0, 50) + '...');
+      return null;
+    }
+  }
+
+  // 6. 验证是否是有效的HTML代码
   const isValidHtml = (
     cleanContent.includes('<!DOCTYPE html>') ||
     cleanContent.includes('<html') ||
@@ -53,11 +83,17 @@ function extractPureHtmlFromResponse(content: string): string | null {
       cleanContent.includes('<div') || cleanContent.includes('<section')))
   );
 
-  // 5. 确保内容长度合理且包含HTML标签
+  // 7. 确保内容长度合理且包含HTML标签
   const hasHtmlTags = /<[^>]+>/.test(cleanContent);
   const isReasonableLength = cleanContent.length > 20 && cleanContent.length < 50000;
 
-  if (isValidHtml && hasHtmlTags && isReasonableLength) {
+  // 8. 确保HTML结构基本完整
+  const hasBasicStructure = (
+    cleanContent.includes('<html') || // 有html标签，或者
+    (cleanContent.includes('<head') && cleanContent.includes('<body')) // 既有head又有body
+  );
+
+  if (isValidHtml && hasHtmlTags && isReasonableLength && hasBasicStructure) {
     return cleanContent;
   }
 
@@ -353,8 +389,50 @@ class DeepSeekProvider implements AIProvider {
             timestamp: new Date().toISOString()
           });
           
-          // 🚀 生成模式优化：智能检测内容类型，只发送HTML代码
+          // 🚀 生成模式优化：智能检测内容类型，只发送纯净HTML代码
           const trimmedContent = content.trim();
+
+          // 过滤不完整的标签序列（如<html<head<body）
+          const incompleteTagPatterns = [
+            /^<html<head<body.*$/,  // 开头就是不完整的标签序列
+            /^<html<head.*$/,       // 不完整的html+head序列
+            /^<head<body.*$/,       // 不完整的head+body序列
+            /^<html<body.*$/,       // 不完整的html+body序列
+            /^<[^>]+<[^>]+<[^>]+.*$/, // 连续多个不完整的开始标签
+          ];
+
+          let isIncompleteSequence = false;
+          for (const pattern of incompleteTagPatterns) {
+            if (pattern.test(trimmedContent)) {
+              isIncompleteSequence = true;
+              break;
+            }
+          }
+
+          if (isIncompleteSequence) {
+            console.log('📝 跳过不完整的标签序列:', trimmedContent.substring(0, 50) + '...');
+            continue;
+          }
+
+          // 检查是否有重复的开始标签
+          const duplicateStartTags = [
+            /<html[^>]*>.*<html[^>]*>/,  // 重复的html标签
+            /<head[^>]*>.*<head[^>]*>/,  // 重复的head标签
+            /<body[^>]*>.*<body[^>]*>/,  // 重复的body标签
+          ];
+
+          let hasDuplicateTags = false;
+          for (const pattern of duplicateStartTags) {
+            if (pattern.test(trimmedContent)) {
+              hasDuplicateTags = true;
+              break;
+            }
+          }
+
+          if (hasDuplicateTags) {
+            console.log('📝 跳过重复的开始标签:', trimmedContent.substring(0, 50) + '...');
+            continue;
+          }
 
           // 检查是否是HTML代码（而不是描述性文字）
           const isHtmlContent = (
@@ -365,7 +443,9 @@ class DeepSeekProvider implements AIProvider {
             trimmedContent.includes('<div') ||
             trimmedContent.includes('<script') ||
             trimmedContent.includes('<style') ||
-            trimmedContent.includes('<') && trimmedContent.includes('>') && !trimmedContent.includes('我') && !trimmedContent.includes('将') && !trimmedContent.includes('创建')
+            (trimmedContent.includes('<') && trimmedContent.includes('>') &&
+             !trimmedContent.includes('我') && !trimmedContent.includes('将') &&
+             !trimmedContent.includes('创建') && !trimmedContent.includes('生成'))
           );
 
           if (isHtmlContent) {
@@ -647,13 +727,53 @@ Return ONLY JSON format, no markdown code blocks.`;
           }
           
           // 检测HTML标签并实时发送（作为备选方案）
-          if (content.includes('<!DOCTYPE') || content.includes('<html') || content.includes('<body')) {
-            isInHtmlBlock = true;
+          const trimmedContent = content.trim();
+
+          // 过滤不完整的标签序列（如<html<head<body）
+          const incompleteTagPatterns = [
+            /^<html<head<body.*$/,  // 开头就是不完整的标签序列
+            /^<html<head.*$/,       // 不完整的html+head序列
+            /^<head<body.*$/,       // 不完整的head+body序列
+            /^<html<body.*$/,       // 不完整的html+body序列
+            /^<[^>]+<[^>]+<[^>]+.*$/, // 连续多个不完整的开始标签
+          ];
+
+          let isIncompleteSequence = false;
+          for (const pattern of incompleteTagPatterns) {
+            if (pattern.test(trimmedContent)) {
+              isIncompleteSequence = true;
+              break;
+            }
           }
-          
-          if (isInHtmlBlock && (content.includes('<') || content.includes('>'))) {
-            // 实时发送HTML内容块
-            onChunk({ type: 'html', content: content });
+
+          if (isIncompleteSequence) {
+            console.log('📝 跳过不完整的标签序列:', trimmedContent.substring(0, 50) + '...');
+          } else {
+            // 检查是否有重复的开始标签
+            const duplicateStartTags = [
+              /<html[^>]*>.*<html[^>]*>/,  // 重复的html标签
+              /<head[^>]*>.*<head[^>]*>/,  // 重复的head标签
+              /<body[^>]*>.*<body[^>]*>/,  // 重复的body标签
+            ];
+
+            let hasDuplicateTags = false;
+            for (const pattern of duplicateStartTags) {
+              if (pattern.test(trimmedContent)) {
+                hasDuplicateTags = true;
+                break;
+              }
+            }
+
+            if (hasDuplicateTags) {
+              console.log('📝 跳过重复的开始标签:', trimmedContent.substring(0, 50) + '...');
+            } else if (content.includes('<!DOCTYPE') || content.includes('<html') || content.includes('<body')) {
+              isInHtmlBlock = true;
+            }
+
+            if (isInHtmlBlock && (content.includes('<') || content.includes('>'))) {
+              // 实时发送HTML内容块
+              onChunk({ type: 'html', content: content });
+            }
           }
           
           logger.info(`OpenAI generateWebsiteStream chunk ${chunkCount}: ${content.length} chars`);
