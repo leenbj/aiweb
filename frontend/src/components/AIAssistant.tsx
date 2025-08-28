@@ -60,6 +60,78 @@ interface SSEEvent {
   timestamp: number;
 }
 
+/**
+ * 严格过滤函数：从任意内容中提取纯净的HTML代码
+ * @param content 任意内容（可能包含JSON、描述文字等）
+ * @returns 纯净的HTML代码或null
+ */
+function extractPureHtml(content: string): string | null {
+  if (!content || typeof content !== 'string') {
+    return null;
+  }
+
+  let cleanContent = content.trim();
+
+  // 1. 尝试从JSON中提取HTML字段
+  if (cleanContent.startsWith('{') && cleanContent.includes('"html"')) {
+    try {
+      const parsed = JSON.parse(cleanContent);
+      if (parsed.html && typeof parsed.html === 'string') {
+        cleanContent = parsed.html.trim();
+      } else {
+        return null; // 无效的JSON格式
+      }
+    } catch (error) {
+      // JSON解析失败，继续处理原始内容
+    }
+  }
+
+  // 2. 移除任何markdown代码块包装
+  if (cleanContent.startsWith('```') && cleanContent.includes('```')) {
+    const codeBlockRegex = /```(?:html)?\n?([\s\S]*?)```/;
+    const match = cleanContent.match(codeBlockRegex);
+    if (match) {
+      cleanContent = match[1].trim();
+    }
+  }
+
+  // 3. 移除任何描述性文字（常见模式）
+  const descriptionPatterns = [
+    /^我.*?(?:创建|生成|为您制作).*?网站.*?:?\s*/i,
+    /^我已经.*?(?:创建|生成|完成).*?\.?\s*/i,
+    /^这是一个.*?(?:网站|网页).*?\.?\s*/i,
+    /^以下是.*?(?:代码|HTML).*?:?\s*/i,
+    /^Here is.*?website.*?code:?\s*/i,
+    /^I've created.*?website.*?for you:?\s*/i
+  ];
+
+  for (const pattern of descriptionPatterns) {
+    cleanContent = cleanContent.replace(pattern, '');
+  }
+
+  // 4. 移除多余的空白和换行
+  cleanContent = cleanContent.replace(/\n{3,}/g, '\n\n').trim();
+
+  // 5. 验证是否是有效的HTML代码
+  const isValidHtml = (
+    cleanContent.includes('<!DOCTYPE html>') ||
+    cleanContent.includes('<html') ||
+    (cleanContent.includes('<') && cleanContent.includes('>') &&
+     (cleanContent.includes('<head') || cleanContent.includes('<body') ||
+      cleanContent.includes('<div') || cleanContent.includes('<section')))
+  );
+
+  // 6. 确保内容长度合理且包含HTML标签
+  const hasHtmlTags = /<[^>]+>/.test(cleanContent);
+  const isReasonableLength = cleanContent.length > 20 && cleanContent.length < 50000;
+
+  if (isValidHtml && hasHtmlTags && isReasonableLength) {
+    return cleanContent;
+  }
+
+  return null; // 不是有效的HTML代码
+}
+
 // 组件属性
 interface AIAssistantProps {
   onCodeUpdate?: (code: string) => void;
@@ -406,40 +478,36 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
     try {
       switch (eventData.type) {
         case 'html_chunk':
+        case 'html':
           // HTML代码块 - 实时流式显示
           if (onCodeUpdate) {
-            // 优先使用fullHtml进行完整代码显示，确保实时更新
+            let codeToDisplay = '';
+
+            // 优先使用fullHtml进行完整代码显示
             if (eventData.fullHtml && eventData.fullHtml.trim()) {
-              // 过滤掉不完整的HTML片段（如只有<html<head<body的代码）
-              const fullHtml = eventData.fullHtml.trim();
+              codeToDisplay = eventData.fullHtml.trim();
+            } else if (eventData.content && eventData.content.trim()) {
+              codeToDisplay = eventData.content.trim();
+            }
 
-              // 检查是否是有效的HTML代码（至少包含DOCTYPE或html标签）
-              const isValidHtml = fullHtml.includes('<!DOCTYPE') ||
-                                fullHtml.includes('<html') ||
-                                (fullHtml.includes('<') && fullHtml.includes('>'));
+            if (codeToDisplay) {
+              // 严格过滤：只允许纯净的HTML代码
+              const cleanHtml = extractPureHtml(codeToDisplay);
 
-              if (isValidHtml && fullHtml.length > 10) { // 确保不是太短的片段
-                console.log('🔄 实时更新完整代码:', {
-                  chunkLength: eventData.content?.length || 0,
-                  fullLength: fullHtml.length,
-                  preview: fullHtml.substring(0, 100) + '...',
-                  isValidHtml
+              if (cleanHtml && cleanHtml.length > 10) {
+                console.log('🔄 更新HTML代码:', {
+                  originalLength: codeToDisplay.length,
+                  cleanLength: cleanHtml.length,
+                  preview: cleanHtml.substring(0, 100) + '...',
+                  type: eventData.type
                 });
-                onCodeUpdate(fullHtml);
+                onCodeUpdate(cleanHtml);
               } else {
-                console.log('⏭️ 跳过无效HTML片段:', {
-                  length: fullHtml.length,
-                  preview: fullHtml.substring(0, 50) + '...'
+                console.log('⏭️ 跳过非HTML内容:', {
+                  length: codeToDisplay.length,
+                  preview: codeToDisplay.substring(0, 50) + '...'
                 });
               }
-            } else if (eventData.content && eventData.content.trim()) {
-              // 如果没有fullHtml，使用content进行增量显示
-              const content = eventData.content.trim();
-              console.log('🔄 增量更新代码块:', {
-                contentLength: content.length,
-                preview: content.substring(0, 50) + '...'
-              });
-              onCodeUpdate(content);
             }
           }
           break;

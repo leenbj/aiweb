@@ -6,6 +6,64 @@ import { prisma } from '../database';
 import { TokenTracker, type TokenUsage } from './tokenTracker';
 import { getDefaultPrompt, PromptType } from '../constants/prompts';
 
+/**
+ * 从AI响应中提取纯净的HTML代码
+ * @param content AI响应内容（可能包含JSON、描述文字等）
+ * @returns 纯净的HTML代码或null
+ */
+function extractPureHtmlFromResponse(content: string): string | null {
+  if (!content || typeof content !== 'string') {
+    return null;
+  }
+
+  let cleanContent = content.trim();
+
+  // 1. 移除任何markdown代码块包装
+  if (cleanContent.startsWith('```') && cleanContent.includes('```')) {
+    const codeBlockRegex = /```(?:html)?\n?([\s\S]*?)```/;
+    const match = cleanContent.match(codeBlockRegex);
+    if (match) {
+      cleanContent = match[1].trim();
+    }
+  }
+
+  // 2. 移除常见的描述性文字
+  const descriptionPatterns = [
+    /^我.*?(?:创建|生成|为您制作).*?网站.*?:?\s*/i,
+    /^我已经.*?(?:创建|生成|完成).*?\.?\s*/i,
+    /^这是一个.*?(?:网站|网页).*?\.?\s*/i,
+    /^以下是.*?(?:代码|HTML).*?:?\s*/i,
+    /^Here is.*?website.*?code:?\s*/i,
+    /^I've created.*?website.*?for you:?\s*/i
+  ];
+
+  for (const pattern of descriptionPatterns) {
+    cleanContent = cleanContent.replace(pattern, '');
+  }
+
+  // 3. 移除多余的空白和换行
+  cleanContent = cleanContent.replace(/\n{3,}/g, '\n\n').trim();
+
+  // 4. 验证是否是有效的HTML代码
+  const isValidHtml = (
+    cleanContent.includes('<!DOCTYPE html>') ||
+    cleanContent.includes('<html') ||
+    (cleanContent.includes('<') && cleanContent.includes('>') &&
+     (cleanContent.includes('<head') || cleanContent.includes('<body') ||
+      cleanContent.includes('<div') || cleanContent.includes('<section')))
+  );
+
+  // 5. 确保内容长度合理且包含HTML标签
+  const hasHtmlTags = /<[^>]+>/.test(cleanContent);
+  const isReasonableLength = cleanContent.length > 20 && cleanContent.length < 50000;
+
+  if (isValidHtml && hasHtmlTags && isReasonableLength) {
+    return cleanContent;
+  }
+
+  return null; // 不是有效的HTML代码
+}
+
 interface AIProvider {
   chat?(messages: Array<{role: 'system' | 'user' | 'assistant', content: string}>, userId?: string, customPrompt?: string, model?: string): Promise<string>;
   chatStream?(messages: Array<{role: 'system' | 'user' | 'assistant', content: string}>, onChunk: (chunk: string) => void, userId?: string, customPrompt?: string, model?: string): Promise<void>;
@@ -320,38 +378,28 @@ class DeepSeekProvider implements AIProvider {
         }
       }
 
-      // 最终兜底处理 - 确保没有遗漏的内容
+      // 最终兜底处理 - 只发送纯净的HTML内容
       try {
         const parsedResponse = JSON.parse(fullContent.trim());
-        if (parsedResponse.reply && parsedResponse.html) {
-          // 发送任何遗漏的reply内容
-          if (parsedResponse.reply.length > sentReplyLength) {
-            const remainingReply = parsedResponse.reply.substring(sentReplyLength);
-            onChunk({ type: 'reply', content: remainingReply });
-          }
-          
-          // 发送任何遗漏的html内容
-          if (parsedResponse.html.length > sentHtmlLength) {
-            const remainingHtml = parsedResponse.html.substring(sentHtmlLength);
-            onChunk({ type: 'html', content: remainingHtml });
-          }
-        } else {
-          // 如果解析的JSON格式不正确
-          if (!replyContent) {
-            onChunk({ type: 'reply', content: '我已经为您创建了一个响应式网站，希望您会喜欢！' });
-          }
-          if (!htmlContent) {
-            onChunk({ type: 'html', content: fullContent });
+        if (parsedResponse.html && typeof parsedResponse.html === 'string') {
+          // 从JSON中提取纯净的HTML代码
+          const pureHtml = extractPureHtmlFromResponse(parsedResponse.html);
+          if (pureHtml && pureHtml.length > sentHtmlLength) {
+            const remainingHtml = pureHtml.substring(sentHtmlLength);
+            if (remainingHtml.trim()) {
+              onChunk({ type: 'html', content: remainingHtml });
+            }
           }
         }
       } catch (error) {
-        // 如果不是JSON格式，作为备选方案发送
-  
-        if (!replyContent) {
-          onChunk({ type: 'reply', content: '我已经为您创建了一个响应式网站，希望您会喜欢！' });
-        }
-        if (!htmlContent) {
-          onChunk({ type: 'html', content: fullContent });
+        // 如果不是JSON格式，尝试从原始内容中提取HTML
+        const pureHtml = extractPureHtmlFromResponse(fullContent);
+        if (pureHtml && pureHtml.length > 0) {
+          // 只发送HTML内容，不发送任何描述性文字
+          const remainingHtml = pureHtml.substring(sentHtmlLength);
+          if (remainingHtml.trim()) {
+            onChunk({ type: 'html', content: remainingHtml });
+          }
         }
       }
 
@@ -612,33 +660,30 @@ Return ONLY JSON format, no markdown code blocks.`;
         }
       }
 
-      // 处理完整响应 - 确保发送完所有内容
+      // 处理完整响应 - 只发送纯净的HTML内容
       try {
         // 最终解析完整JSON
         const parsedResponse = JSON.parse(fullContent.trim());
-        if (parsedResponse.reply && parsedResponse.html) {
-          // 发送剩余的HTML内容（如果有）
-          if (parsedResponse.html.length > currentHtml.length) {
-            const remainingHtml = parsedResponse.html.substring(currentHtml.length);
-            onChunk({ type: 'html', content: remainingHtml });
+        if (parsedResponse.html && typeof parsedResponse.html === 'string') {
+          // 从JSON中提取纯净的HTML代码
+          const pureHtml = extractPureHtmlFromResponse(parsedResponse.html);
+          if (pureHtml && pureHtml.length > currentHtml.length) {
+            const remainingHtml = pureHtml.substring(currentHtml.length);
+            if (remainingHtml.trim()) {
+              onChunk({ type: 'html', content: remainingHtml });
+            }
           }
-          
-          // 🚀 生成模式优化：不发送剩余的回复内容，只发送HTML代码
-          // if (parsedResponse.reply.length > currentReply.length) {
-          //   const remainingReply = parsedResponse.reply.substring(currentReply.length);
-          //   onChunk({ type: 'reply', content: remainingReply });
-          // }
-        } else {
-          // 如果JSON格式不正确，将整个内容作为HTML
-          // 🚀 生成模式优化：不发送描述性回复，只发送HTML代码
-          // onChunk({ type: 'reply', content: 'I have created a responsive website for you. I hope you like it!' });
-          onChunk({ type: 'html', content: fullContent });
         }
       } catch (error) {
-        // 如果不是JSON格式，将整个内容作为HTML
-        // 🚀 生成模式优化：不发送描述性回复，只发送HTML代码
-        // onChunk({ type: 'reply', content: 'I have created a responsive website for you. I hope you like it!' });
-        onChunk({ type: 'html', content: fullContent });
+        // 如果不是JSON格式，尝试从原始内容中提取HTML
+        const pureHtml = extractPureHtmlFromResponse(fullContent);
+        if (pureHtml && pureHtml.length > 0) {
+          // 只发送HTML内容，不发送任何描述性文字
+          const remainingHtml = pureHtml.substring(currentHtml.length);
+          if (remainingHtml.trim()) {
+            onChunk({ type: 'html', content: remainingHtml });
+          }
+        }
       }
 
       logger.info('🎉 OpenAI generateWebsiteStream完成', { 
@@ -893,10 +938,13 @@ class AnthropicProvider implements AIProvider {
     if (!generatedContent || generatedContent.trim() === '') {
       throw new Error('Anthropic AI模型返回了空的内容，请重试或检查API配置');
     }
-    
+
+    // 从响应中提取纯净的HTML代码
+    const pureHtml = extractPureHtmlFromResponse(generatedContent);
+
     return {
-      reply: 'I have created a responsive website for you. I hope you like it!',
-      html: generatedContent
+      reply: '网站生成完成！',
+      html: pureHtml || generatedContent // 如果提取失败，使用原始内容
     };
   }
 
