@@ -4,7 +4,7 @@ import { Split } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { VisualEditor } from '../components/VisualEditor';
 import { ResizableAIChat } from '../components/ResizableAIChat';
-import { GenerationProgressBar } from '../components/ui/GenerationProgressBar';
+
 import { useWebsiteStore } from '../store/websiteStore';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { toast } from 'react-hot-toast';
@@ -349,14 +349,7 @@ export const WebsiteEditor: React.FC = () => {
 
   return (
     <div className="h-screen flex flex-col">
-      {/* 全局生成进度条 */}
-      <GenerationProgressBar
-        progress={generationProgress.progress}
-        stage={generationProgress.stage}
-        currentCode={content}
-        isVisible={isGenerating}
-        estimatedTotal={8000}
-      />
+
       
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">

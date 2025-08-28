@@ -518,19 +518,37 @@ class DeepSeekProvider implements AIProvider {
           );
 
           if (isHtmlContent) {
-            // 尝试标准化HTML内容
-            const standardizedHtml = standardizeHtmlDocument(content);
-            if (standardizedHtml) {
-              // 发送标准化的HTML代码块
-              onChunk({ type: 'html', content: standardizedHtml });
+            // 检查内容是否足够完整再进行标准化
+            const isContentComplete = (
+              content.includes('<!DOCTYPE html>') &&
+              content.includes('<html') &&
+              (content.includes('</html>') || content.length > 50) // 降低阈值，确保流式体验
+            );
+
+            if (isContentComplete) {
+              // 对于完整的内容，尝试标准化
+              const standardizedHtml = standardizeHtmlDocument(content);
+              if (standardizedHtml) {
+                // 发送标准化的HTML代码块
+                onChunk({ type: 'html', content: standardizedHtml });
+              } else {
+                // 如果标准化失败，尝试使用后端过滤函数
+                const filteredHtml = extractPureHtmlFromResponse(content);
+                if (filteredHtml) {
+                  onChunk({ type: 'html', content: filteredHtml });
+                } else {
+                  // 如果过滤也失败，记录但不发送
+                  console.log('❌ 过滤失败，跳过内容:', content.substring(0, 50) + '...');
+                }
+              }
             } else {
-              // 如果标准化失败，尝试使用后端过滤函数
+              // 对于不完整的内容，只进行基本的过滤，不标准化
               const filteredHtml = extractPureHtmlFromResponse(content);
               if (filteredHtml) {
                 onChunk({ type: 'html', content: filteredHtml });
               } else {
-                // 如果过滤也失败，记录但不发送
-                console.log('❌ 过滤失败，跳过内容:', content.substring(0, 50) + '...');
+                // 如果过滤失败，跳过这个片段
+                console.log('⏭️ 跳过不完整的HTML片段:', content.substring(0, 50) + '...');
               }
             }
           } else {

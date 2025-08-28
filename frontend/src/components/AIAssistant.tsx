@@ -138,11 +138,14 @@ function extractPureHtml(content: string): string | null {
     /^<head<body.*$/,       // 不完整的head+body序列
     /^<html<body.*$/,       // 不完整的html+body序列
     /^<[^>]+<[^>]+<[^>]+.*$/, // 连续多个不完整的开始标签
+    /^<html[^>]*>[^<]*<html[^>]*>/, // 重复的html标签
+    /^<head[^>]*>[^<]*<head[^>]*>/, // 重复的head标签
+    /^<body[^>]*>[^<]*<body[^>]*>/, // 重复的body标签
   ];
 
   for (const pattern of incompleteTagPatterns) {
     if (pattern.test(cleanContent)) {
-      console.log('过滤掉不完整的标签序列:', cleanContent.substring(0, 50) + '...');
+      console.log('过滤掉不完整的或重复的标签序列:', cleanContent.substring(0, 50) + '...');
       return null;
     }
   }
@@ -273,7 +276,8 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
   const [inputValue, setInputValue] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error' | 'testing'>('testing');
+  type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error' | 'testing';
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('testing');
   const [currentMode, setCurrentMode] = useState<AIMode>('chat');
   const [userSettings, setUserSettings] = useState<UserSettings>({});
   const [showModeSelector, setShowModeSelector] = useState(false);
@@ -547,26 +551,24 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
         const chunkContent = event.data.content;
         const fullContent = event.data.fullContent;
 
-        if (currentMode === 'generate') {
-          // 生成模式：直接调用onCodeUpdate，不在对话框中显示
-          if (onCodeUpdate && fullContent) {
-            onCodeUpdate(fullContent);
-          }
-        } else {
-          // 其他模式：在对话框中显示
-          if (messageId) {
-            flushSync(() => {
-              setMessages(prev => prev.map(msg =>
-                msg.id === messageId
-                  ? { ...msg, content: fullContent || msg.content + chunkContent }
-                  : msg
-              ));
-            });
+        // 同时更新代码编辑器和对话框（适用于所有模式）
+        if (onCodeUpdate && fullContent) {
+          onCodeUpdate(fullContent);
+        }
 
-            requestAnimationFrame(() => {
-              scrollToBottom();
-            });
-          }
+        // 在对话框中显示流式内容
+        if (messageId) {
+          flushSync(() => {
+            setMessages(prev => prev.map(msg =>
+              msg.id === messageId
+                ? { ...msg, content: fullContent || msg.content + chunkContent }
+                : msg
+            ));
+          });
+
+          requestAnimationFrame(() => {
+            scrollToBottom();
+          });
         }
         break;
 
@@ -578,8 +580,11 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
               ? { ...msg, isStreaming: false }
               : msg
           ));
-        }
+          // 延迟清理streamingMessageId，避免竞态条件
+          setTimeout(() => {
         setStreamingMessageId(null);
+          }, 100);
+        }
         break;
 
       case 'error':
@@ -590,84 +595,36 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
               ? { ...msg, content: `错误：${event.data.message}`, error: true, isStreaming: false }
               : msg
           ));
-        }
+          // 延迟清理streamingMessageId
+          setTimeout(() => {
         setStreamingMessageId(null);
+          }, 100);
+        }
         toast.error(event.data.message);
         break;
     }
   }, [scrollToBottom, currentMode, onCodeUpdate]);
 
-  // 处理流式生成事件（用于直接流式生成，不通过handleSSEEvent）
-  const handleStreamEvent = useCallback((eventData: any) => {
+  // 处理流式生成事件（用于直接流式生成，保持与对话模式一致）
+  const handleStreamEvent = useCallback(async (eventData: any, messageId?: string) => {
     try {
-      switch (eventData.type) {
-        case 'html_chunk':
-          // HTML代码块 - 实时流式显示
-          if (onCodeUpdate) {
-            let codeToDisplay = '';
+      // 模拟对话模式的SSE事件格式
+      const simulatedEvent: SSEEvent = {
+        id: `event-${Date.now()}`,
+        event: 'chunk',
+        timestamp: Date.now(),
+        data: {
+          content: eventData.content || '',
+          fullContent: eventData.content || ''
+        }
+      };
 
-            // 优先使用fullHtml进行完整代码显示
-            if (eventData.fullHtml && eventData.fullHtml.trim()) {
-              codeToDisplay = eventData.fullHtml.trim();
-            } else if (eventData.content && eventData.content.trim()) {
-              codeToDisplay = eventData.content.trim();
-            }
-
-            if (codeToDisplay) {
-              // 严格过滤：只允许纯净的HTML代码
-              const cleanHtml = extractPureHtml(codeToDisplay);
-
-              if (cleanHtml && cleanHtml.length > 10) {
-                console.log('🔄 更新HTML代码:', {
-                  originalLength: codeToDisplay.length,
-                  cleanLength: cleanHtml.length,
-                  preview: cleanHtml.substring(0, 100) + '...',
-                  type: eventData.type
-                });
-                onCodeUpdate(cleanHtml);
-              } else {
-                console.log('⏭️ 跳过非HTML内容:', {
-                  length: codeToDisplay.length,
-                  preview: codeToDisplay.substring(0, 50) + '...'
-                });
-              }
-            }
-          }
-          break;
-
-        case 'reply':
-          // AI回复（暂时不显示在对话框中）
-          console.log('AI回复:', eventData.content);
-          break;
-
-        case 'complete':
-          // 生成完成
-          console.log('生成完成:', eventData);
-          if (onCodeUpdate && eventData.content) {
-            onCodeUpdate(eventData.content);
-          }
-
-          // 如果代码被自动补全，显示提示
-          if (eventData.autoCompleted) {
-            toast.success('代码已自动补全，确保完整性！');
-          } else {
-            toast.success('网站生成完成！');
-          }
-
-          // 通知父组件生成结束
-          onGenerationEnd?.();
-          break;
-
-        case 'error':
-          // 错误处理
-          console.error('流式生成错误:', eventData.error);
-          toast.error(eventData.error || '生成失败');
-          break;
-      }
+      // 使用对话模式的处理逻辑
+      await handleSSEEvent(simulatedEvent, messageId || '');
     } catch (error) {
       console.error('处理流式事件错误:', error);
     }
-  }, [onCodeUpdate, onGenerationStart, onGenerationEnd]);
+  }, [handleSSEEvent]);
 
   // 处理生成连接
   const handleGenerateConnection = useCallback(async (prompt: string) => {
@@ -717,6 +674,20 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
 
       setConnectionStatus('connected');
 
+      // 创建助手消息（用于在对话框中显示流式内容）
+      const assistantMessageId = `assistant-generate-${Date.now()}`;
+      const assistantMessage: Message = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        isStreaming: true,
+        mode: 'generate'
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+      setStreamingMessageId(assistantMessageId);
+
       // 读取流式响应
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -750,7 +721,7 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
                 if (!jsonStr) continue;
 
                 const eventData = JSON.parse(jsonStr);
-                handleStreamEvent(eventData);
+                await handleStreamEvent(eventData, assistantMessageId);
 
               } catch (parseError) {
                 console.error('解析SSE数据错误:', parseError, line);
@@ -954,7 +925,7 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
 
     // 只在非生成模式下在对话框中显示用户消息
     if (messageMode !== 'generate') {
-      setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => [...prev, userMessage]);
     }
 
     setInputValue('');
@@ -1093,10 +1064,10 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
           {(connectionStatus === 'disconnected' || connectionStatus === 'error') && (
             <button
               onClick={testAIConnection}
-              disabled={connectionStatus === 'testing'}
+              disabled={false}
               className="flex items-center gap-2 px-3 py-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-4 h-4 ${connectionStatus === 'testing' ? 'animate-spin' : ''}`} />
+              <RefreshCw className="w-4 h-4" />
               重新连接
             </button>
           )}
