@@ -230,28 +230,16 @@ class DeepSeekProvider implements AIProvider {
         userId 
       });
 
-      // 🔥 测试简化提示词，避免JSON格式要求导致的思考延迟
+      // 修复：正确处理用户自定义提示词
       let systemPrompt: string;
       if (customPrompt) {
         systemPrompt = customPrompt;
+      } else if (userId) {
+        // 如果没有自定义提示词但有用户ID，从用户设置中获取生成模式专用提示词
+        systemPrompt = await getUserPrompt(userId, PromptType.GENERATE);
       } else {
-        // 使用简化的提示词进行流式测试
-        systemPrompt = `你是一个网站开发助手。用户会要求你创建网站，请：
-1. 立即开始回复，不要等待
-2. 边思考边说话，流式回复
-3. 先简单说明你要创建什么类型的网站
-4. 然后提供HTML代码
-
-现在立即开始回复用户的需求：`;
-        
-        // 原始逻辑备用
-        /*
-        if (userId) {
-          systemPrompt = await getUserPrompt(userId, PromptType.GENERATE);
-        } else {
-          systemPrompt = getDefaultPrompt(PromptType.GENERATE);
-        }
-        */
+        // 如果都没有，使用默认提示词
+        systemPrompt = getDefaultPrompt(PromptType.GENERATE);
       }
 
       const targetModel = model || config.ai.deepseek.model;
@@ -538,31 +526,17 @@ Return ONLY JSON format, no markdown code blocks.`;
         userId 
       });
 
-      let systemPrompt = customPrompt || `你是一个专业的网站代码生成器。你的任务是根据用户需求生成完整的HTML网站代码。
-
-重要规则：
-1. 不要进行对话或询问问题
-2. 直接生成完整的网站HTML代码
-3. 必须返回严格的JSON格式
-
-返回格式（重要！）：
-{
-  "reply": "我已经为您创建了一个[网站类型]网站，包含了您要求的功能和设计。",
-  "html": "完整的HTML代码（包含HTML、CSS、JavaScript）"
-}
-
-HTML代码要求：
-- 完整的<!DOCTYPE html>文档
-- 响应式设计，适配所有设备
-- 现代化CSS样式（使用flexbox/grid）
-- 如需要，包含JavaScript交互
-- 专业的视觉设计
-- 中文内容（除非另有要求）
-
-示例输出格式：
-{"reply": "我已经为您创建了一个现代化的企业官网，包含了首页、产品介绍和联系方式等功能。", "html": "<!DOCTYPE html><html>...</html>"}
-
-重要：只返回JSON，不要任何其他格式！`;
+      // 修复：正确处理用户自定义提示词
+      let systemPrompt: string;
+      if (customPrompt) {
+        systemPrompt = customPrompt;
+      } else if (userId) {
+        // 如果没有自定义提示词但有用户ID，从用户设置中获取生成模式专用提示词
+        systemPrompt = await getUserPrompt(userId, PromptType.GENERATE);
+      } else {
+        // 如果都没有，使用默认提示词
+        systemPrompt = getDefaultPrompt(PromptType.GENERATE);
+      }
 
       const stream = await this.client.chat.completions.create({
         model: model || config.ai.openai.model,
@@ -894,18 +868,17 @@ class AnthropicProvider implements AIProvider {
   }
 
   async generateWebsite(prompt: string, userId?: string, customPrompt?: string, model?: string): Promise<{ reply: string; html: string }> {
-    const systemPrompt = customPrompt || `You are an expert web developer. Create a complete, responsive HTML page with inline CSS and JavaScript based on the user's requirements.
-
-Requirements:
-- Use semantic HTML5
-- Include responsive CSS with mobile-first approach
-- Add interactive JavaScript where appropriate
-- Use modern CSS features (flexbox, grid, custom properties)
-- Ensure accessibility (alt tags, proper heading hierarchy, ARIA labels)
-- Include meta tags for SEO
-- Style should be modern and professional
-
-Return ONLY the complete HTML code, no explanations or markdown formatting.`;
+    // 修复：正确处理用户自定义提示词
+    let systemPrompt: string;
+    if (customPrompt) {
+      systemPrompt = customPrompt;
+    } else if (userId) {
+      // 如果没有自定义提示词但有用户ID，从用户设置中获取生成模式专用提示词
+      systemPrompt = await getUserPrompt(userId, PromptType.GENERATE);
+    } else {
+      // 如果都没有，使用默认提示词
+      systemPrompt = getDefaultPrompt(PromptType.GENERATE);
+    }
 
     const response = await this.client.messages.create({
       model: model || config.ai.anthropic.model,

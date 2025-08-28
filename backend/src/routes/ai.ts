@@ -711,12 +711,13 @@ router.post('/generate-stream', authenticate, async (req: any, res: Response) =>
 
     try {
 
-      
+
       if (userId) {
         const { provider, settings } = await aiService.getUserProvider(userId);
-        const customPrompt = settings?.systemPrompt;
+        // 修复：使用生成模式专用的提示词，而不是通用系统提示词
+        const customPrompt = settings?.generatePrompt || settings?.systemPrompt;
         const model = aiService.getModelFromSettings(settings);
-        
+
         // 🔥 关键调试：确认实际使用的provider
         // console.log('🔍 实际使用的Provider信息:', {
         //   providerType: provider.constructor.name,
