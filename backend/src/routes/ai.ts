@@ -30,6 +30,60 @@ async function getUserChatPrompt(userId: string): Promise<string> {
   }
 }
 
+/**
+ * 根据模式获取用户提示词
+ */
+async function getUserPromptByMode(userId: string, mode: 'chat' | 'generate' | 'edit'): Promise<string> {
+  try {
+    const settings = await prisma.userSettings.findUnique({
+      where: { userId }
+    });
+
+    if (!settings) {
+      const promptTypeMap = {
+        chat: PromptType.CHAT,
+        generate: PromptType.GENERATE,
+        edit: PromptType.EDIT
+      };
+      return getDefaultPrompt(promptTypeMap[mode]);
+    }
+
+    // 根据模式选择对应的提示词
+    let customPrompt = '';
+    switch (mode) {
+      case 'chat':
+        customPrompt = settings.chatPrompt || settings.systemPrompt || '';
+        break;
+      case 'generate':
+        customPrompt = settings.generatePrompt || settings.systemPrompt || '';
+        break;
+      case 'edit':
+        customPrompt = settings.editPrompt || settings.systemPrompt || '';
+        break;
+    }
+
+    // 如果没有自定义提示词，使用默认提示词
+    if (!customPrompt) {
+      const promptTypeMap = {
+        chat: PromptType.CHAT,
+        generate: PromptType.GENERATE,
+        edit: PromptType.EDIT
+      };
+      return getDefaultPrompt(promptTypeMap[mode]);
+    }
+
+    return customPrompt;
+  } catch (error) {
+    logger.error(`获取用户${mode}模式提示词失败:`, error);
+    const promptTypeMap = {
+      chat: PromptType.CHAT,
+      generate: PromptType.GENERATE,
+      edit: PromptType.EDIT
+    };
+    return getDefaultPrompt(promptTypeMap[mode]);
+  }
+}
+
 // Generate website with AI
 router.post('/generate', authenticate, async (req: any, res: Response) => {
   try {
@@ -466,7 +520,7 @@ router.post('/test-connection', authenticate, async (req: any, res: Response) =>
 // AI Chat Stream for real-time response
 router.post('/chat-stream', authenticate, async (req: any, res: Response) => {
   try {
-    const { message, conversationHistory = [], stage, requirements } = req.body;
+    const { message, conversationHistory = [], mode = 'chat', stage, requirements } = req.body;
     const userId = req.user!.id;
 
     if (!message) {
@@ -482,8 +536,8 @@ router.post('/chat-stream', authenticate, async (req: any, res: Response) => {
       'Access-Control-Allow-Headers': 'Cache-Control'
     });
 
-    // 获取用户的聊天提示词
-    const systemPrompt = await getUserChatPrompt(userId);
+    // 根据模式获取用户的提示词
+    const systemPrompt = await getUserPromptByMode(userId, mode as 'chat' | 'generate' | 'edit');
     
     // 构建对话消息数组
     const messages = [
@@ -513,8 +567,12 @@ router.post('/chat-stream', authenticate, async (req: any, res: Response) => {
         if (provider.chatStream) {
 
           await provider.chatStream(messages, (chunk: string) => {
-
-            res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+            res.write(`data: ${JSON.stringify({ 
+              type: 'chunk', 
+              content: chunk, 
+              mode: mode,
+              hasCustomPrompt: !!systemPrompt
+            })}\n\n`);
           }, userId, customPrompt, model);
         } else if (provider.chat) {
           // 如果不支持流式，降级为普通chat
@@ -698,24 +756,70 @@ router.post('/generate-stream', authenticate, async (req: any, res: Response) =>
           fullHtml = result.html;
           aiReply = result.reply;
           
-          // 模拟流式发送
+          // 模拟流式发送，只发送HTML代码块，不发送描述性回复
           const chunks = fullHtml.match(/.{1,100}/g) || [fullHtml];
           for (let i = 0; i < chunks.length; i++) {
             setTimeout(() => {
-              res.write(`data: ${JSON.stringify({ 
-                type: 'html_chunk', 
+              res.write(`data: ${JSON.stringify({
+                type: 'html_chunk',
                 content: chunks[i],
                 fullHtml: fullHtml.slice(0, chunks.slice(0, i + 1).join('').length)
               })}\n\n`);
             }, i * 100);
           }
-          
-          setTimeout(() => {
-            res.write(`data: ${JSON.stringify({ type: 'reply', content: aiReply })}\n\n`);
-          }, chunks.length * 100);
+
+          // 不发送reply块给前端，避免在代码编辑器中显示描述文字
         }
       } else {
         throw new Error('User ID is required for streaming generation');
+      }
+
+      // 检查代码完整性，如果不完整则自动继续生成
+      const checkCodeCompleteness = (code: string): { isComplete: boolean; missingParts: string[] } => {
+        const missingParts: string[] = [];
+
+        if (!code.includes('<!DOCTYPE html>')) missingParts.push('DOCTYPE声明');
+        if (!code.includes('<html')) missingParts.push('html标签');
+        if (!code.includes('<head')) missingParts.push('head标签');
+        if (!code.includes('<body')) missingParts.push('body标签');
+        if (!code.includes('</html>')) missingParts.push('html结束标签');
+        if (!code.includes('</body>')) missingParts.push('body结束标签');
+        if (!code.includes('</head>')) missingParts.push('head结束标签');
+
+        // 检查是否有基本的样式或内容
+        const hasBasicContent = code.includes('<h1') || code.includes('<div') ||
+                               code.includes('<section') || code.includes('<p');
+        if (!hasBasicContent) missingParts.push('基本内容');
+
+        return {
+          isComplete: missingParts.length === 0,
+          missingParts
+        };
+      };
+
+      const completeness = checkCodeCompleteness(fullHtml);
+
+      if (!completeness.isComplete) {
+        console.log('检测到代码不完整，尝试自动补全:', completeness.missingParts);
+
+        try {
+          // 使用AI生成缺失的部分
+          const completionPrompt = `请补全以下不完整的HTML代码，缺失的部分包括：${completeness.missingParts.join('、')}
+
+当前代码：
+${fullHtml}
+
+请提供完整的、可运行的HTML代码，不要添加任何解释。`;
+
+          const completionResult = await aiService.generateWebsite(completionPrompt, userId);
+
+          if (completionResult.html && completionResult.html.length > fullHtml.length) {
+            fullHtml = completionResult.html;
+            console.log('代码补全成功，新的代码长度:', fullHtml.length);
+          }
+        } catch (completionError) {
+          console.warn('自动补全失败，使用原始代码:', completionError);
+        }
       }
 
       // 保存到数据库
@@ -737,11 +841,12 @@ router.post('/generate-stream', authenticate, async (req: any, res: Response) =>
         });
       }
 
-      res.write(`data: ${JSON.stringify({ 
-        type: 'complete', 
+      res.write(`data: ${JSON.stringify({
+        type: 'complete',
         website,
         content: fullHtml,
-        reply: aiReply
+        reply: aiReply,
+        autoCompleted: !completeness.isComplete
       })}\n\n`);
       res.end();
 
@@ -843,6 +948,91 @@ router.post('/edit-stream', authenticate, async (req: any, res: Response) => {
     res.status(500).json({ 
       success: false, 
       error: 'Failed to setup stream editing' 
+    });
+  }
+});
+
+// AI Mode Detection - 智能模式检测
+router.post('/detect-mode', authenticate, async (req: any, res: Response) => {
+  try {
+    const { message, conversationHistory = [] } = req.body;
+    const userId = req.user!.id;
+
+    if (!message) {
+      return res.status(400).json({ success: false, error: 'Message is required' });
+    }
+
+    // 简单的模式检测逻辑
+    const detectMode = (msg: string): { mode: string; confidence: number; reasoning: string } => {
+      const normalizedMsg = msg.toLowerCase();
+      const scores = { generate: 0, edit: 0, chat: 0 };
+
+      // 生成模式关键词检测
+      const generateKeywords = ['创建', '生成', '制作', '建立', '构建', '开发', '做一个', '新建', 'create', 'build', 'generate', 'make'];
+      generateKeywords.forEach(keyword => {
+        if (normalizedMsg.includes(keyword)) scores.generate += 1;
+      });
+
+      // 编辑模式关键词检测
+      const editKeywords = ['修改', '编辑', '更改', '调整', '优化', '完善', '更新', '修复', 'edit', 'modify', 'change', 'update', 'fix'];
+      editKeywords.forEach(keyword => {
+        if (normalizedMsg.includes(keyword)) scores.edit += 1;
+      });
+
+      // 对话模式关键词检测
+      const chatKeywords = ['什么', '如何', '怎么', '为什么', '能否', '可以', '帮助', '建议', '咨询', 'what', 'how', 'why', 'help'];
+      chatKeywords.forEach(keyword => {
+        if (normalizedMsg.includes(keyword)) scores.chat += 1;
+      });
+
+      // 网站相关内容检测
+      if (normalizedMsg.includes('网站') || normalizedMsg.includes('页面') || normalizedMsg.includes('website')) {
+        if (scores.edit > 0) scores.edit += 1;
+        else if (scores.generate > 0) scores.generate += 1;
+      }
+
+      // 问号检测
+      if (normalizedMsg.includes('?') || normalizedMsg.includes('？')) {
+        scores.chat += 0.5;
+      }
+
+      // 确定最高得分的模式
+      const maxScore = Math.max(scores.generate, scores.edit, scores.chat);
+      const totalScore = scores.generate + scores.edit + scores.chat;
+      
+      let detectedMode = 'chat'; // 默认对话模式
+      if (scores.generate === maxScore && maxScore > 0) detectedMode = 'generate';
+      else if (scores.edit === maxScore && maxScore > 0) detectedMode = 'edit';
+      
+      const confidence = totalScore > 0 ? maxScore / totalScore : 0.33;
+
+      // 生成推理说明
+      let reasoning = `检测到${detectedMode === 'generate' ? '生成' : detectedMode === 'edit' ? '编辑' : '对话'}意图`;
+      if (maxScore > 0) {
+        reasoning += `，置信度 ${Math.round(confidence * 100)}%`;
+      }
+
+      return { mode: detectedMode, confidence, reasoning };
+    };
+
+    const result = detectMode(message);
+
+    res.json({
+      success: true,
+      data: {
+        message,
+        detectedMode: result.mode,
+        confidence: result.confidence,
+        reasoning: result.reasoning,
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    logger.error('Mode detection error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to detect mode' 
     });
   }
 });

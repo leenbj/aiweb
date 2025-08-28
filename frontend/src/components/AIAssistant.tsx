@@ -1,8 +1,45 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { flushSync } from 'react-dom';
-import { Send, Bot, User, Loader2, RefreshCw } from 'lucide-react';
+import { Send, Bot, User, Loader2, RefreshCw, Settings, MessageCircle, Code, Edit3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
+
+// AI模式类型
+export type AIMode = 'chat' | 'generate' | 'edit';
+
+// 模式配置
+const AI_MODES = {
+  chat: {
+    name: '对话模式',
+    description: '智能对话交流，自动判断意图',
+    icon: MessageCircle,
+    color: 'bg-blue-500',
+    placeholder: '💬 有什么问题或需要帮助的吗？'
+  },
+  generate: {
+    name: '生成模式',
+    description: '生成网站、代码和创意内容',
+    icon: Code,
+    color: 'bg-green-500',
+    placeholder: '🚀 描述您想要生成的网站或代码...'
+  },
+  edit: {
+    name: '编辑模式',
+    description: '修改和优化现有代码',
+    icon: Edit3,
+    color: 'bg-purple-500',
+    placeholder: '✏️ 描述您想要修改的内容...'
+  }
+} as const;
+
+// 用户设置类型
+interface UserSettings {
+  aiProvider?: string;
+  aiModel?: string;
+  chatPrompt?: string;
+  generatePrompt?: string;
+  editPrompt?: string;
+}
 
 // 消息类型定义
 interface Message {
@@ -12,6 +49,7 @@ interface Message {
   timestamp: Date;
   isStreaming?: boolean;
   error?: boolean;
+  mode?: AIMode;
 }
 
 // SSE事件类型
@@ -31,14 +69,17 @@ interface AIAssistantProps {
 /**
  * AI助手组件 - 全新设计，专注于实时流式对话
  */
-export default function AIAssistant({ className = '' }: AIAssistantProps) {
+export default function AIAssistant({ onCodeUpdate, className = '' }: AIAssistantProps) {
   // 状态管理
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error' | 'testing'>('testing');
-  
+  const [currentMode, setCurrentMode] = useState<AIMode>('chat');
+  const [userSettings, setUserSettings] = useState<UserSettings>({});
+  const [showModeSelector, setShowModeSelector] = useState(false);
+
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -47,10 +88,56 @@ export default function AIAssistant({ className = '' }: AIAssistantProps) {
 
   // 自动滚动到底部
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ 
+    messagesEndRef.current?.scrollIntoView({
       behavior: 'smooth',
       block: 'end'
     });
+  }, []);
+
+  // 获取当前模式配置
+  const currentModeConfig = useMemo(() => AI_MODES[currentMode], [currentMode]);
+
+
+
+
+
+  // 自动判断对话模式
+  const detectModeFromMessage = useCallback((message: string): AIMode => {
+    const lowerMessage = message.toLowerCase();
+
+    // 编辑模式关键词
+    const editKeywords = [
+      '修改', '编辑', '更新', '优化', '改进', '修复', '改', '优化',
+      'change', 'edit', 'update', 'optimize', 'improve', 'fix',
+      '修改代码', '编辑代码', '更新代码', '优化代码', '改进代码', '修复代码'
+    ];
+
+    // 生成模式关键词
+    const generateKeywords = [
+      '创建', '生成', '新建', '制作', '开发', '设计', '构建', '写',
+      'create', 'generate', 'make', 'build', 'write', 'design',
+      '创建网站', '生成代码', '新建项目', '制作页面', '开发应用'
+    ];
+
+    // 检查是否包含编辑关键词
+    if (editKeywords.some(keyword => lowerMessage.includes(keyword))) {
+      return 'edit';
+    }
+
+    // 检查是否包含生成关键词
+    if (generateKeywords.some(keyword => lowerMessage.includes(keyword))) {
+      return 'generate';
+    }
+
+    // 默认为对话模式
+    return 'chat';
+  }, []);
+
+  // 处理模式切换
+  const handleModeChange = useCallback((newMode: AIMode) => {
+    setCurrentMode(newMode);
+    setShowModeSelector(false);
+    toast.success(`已切换到${AI_MODES[newMode].name}`);
   }, []);
 
   // 测试AI连接状态
@@ -89,7 +176,7 @@ export default function AIAssistant({ className = '' }: AIAssistantProps) {
   }, []);
 
   // 处理SSE连接
-  const handleSSEConnection = useCallback(async (message: string) => {
+  const handleSSEConnection = useCallback(async (message: string, mode: AIMode = 'chat') => {
     try {
       setIsConnecting(true);
       setConnectionStatus('connecting');
@@ -103,10 +190,12 @@ export default function AIAssistant({ className = '' }: AIAssistantProps) {
       // 准备请求数据
       const requestData = {
         message,
+        mode,
         conversationHistory: messages.map(msg => ({
           role: msg.role,
           content: msg.content
-        }))
+        })),
+        customPrompt: userSettings[`${mode}Prompt`]
       };
 
       // 获取认证token
@@ -199,8 +288,8 @@ export default function AIAssistant({ className = '' }: AIAssistantProps) {
             }
           }
         }
-      } catch (readError) {
-        if (readError.name !== 'AbortError') {
+      } catch (readError: any) {
+        if (readError?.name !== 'AbortError') {
           console.error('读取流时出错:', readError);
           throw readError;
         }
@@ -256,70 +345,405 @@ export default function AIAssistant({ className = '' }: AIAssistantProps) {
         break;
 
       case 'chunk':
-        // 更新流式内容 - 使用React 18的flushSync强制立即更新
+        // 更新流式内容
         const chunkContent = event.data.content;
         const fullContent = event.data.fullContent;
-        
-        // 使用React 18的flushSync确保立即更新
-        flushSync(() => {
-          setMessages(prev => prev.map(msg => 
-            msg.id === messageId 
-              ? { ...msg, content: fullContent || msg.content + chunkContent }
-              : msg
-          ));
-        });
-        
-        // 立即滚动到底部
-        requestAnimationFrame(() => {
-          scrollToBottom();
-        });
+
+        if (currentMode === 'generate') {
+          // 生成模式：直接调用onCodeUpdate，不在对话框中显示
+          if (onCodeUpdate && fullContent) {
+            onCodeUpdate(fullContent);
+          }
+        } else {
+          // 其他模式：在对话框中显示
+          if (messageId) {
+            flushSync(() => {
+              setMessages(prev => prev.map(msg =>
+                msg.id === messageId
+                  ? { ...msg, content: fullContent || msg.content + chunkContent }
+                  : msg
+              ));
+            });
+
+            requestAnimationFrame(() => {
+              scrollToBottom();
+            });
+          }
+        }
         break;
 
       case 'done':
         console.log('AI响应完成:', event.data);
-        setMessages(prev => prev.map(msg => 
-          msg.id === messageId 
-            ? { ...msg, isStreaming: false }
-            : msg
-        ));
+        if (messageId) {
+          setMessages(prev => prev.map(msg =>
+            msg.id === messageId
+              ? { ...msg, isStreaming: false }
+              : msg
+          ));
+        }
         setStreamingMessageId(null);
         break;
 
       case 'error':
         console.error('AI响应错误:', event.data);
-        setMessages(prev => prev.map(msg => 
-          msg.id === messageId 
-            ? { ...msg, content: `错误：${event.data.message}`, error: true, isStreaming: false }
-            : msg
-        ));
+        if (messageId) {
+          setMessages(prev => prev.map(msg =>
+            msg.id === messageId
+              ? { ...msg, content: `错误：${event.data.message}`, error: true, isStreaming: false }
+              : msg
+          ));
+        }
         setStreamingMessageId(null);
         toast.error(event.data.message);
         break;
     }
-  }, [scrollToBottom]);
+  }, [scrollToBottom, currentMode, onCodeUpdate]);
+
+  // 处理流式生成事件（用于直接流式生成，不通过handleSSEEvent）
+  const handleStreamEvent = useCallback((eventData: any) => {
+    try {
+      switch (eventData.type) {
+        case 'html_chunk':
+          // HTML代码块
+          if (onCodeUpdate && eventData.fullHtml) {
+            onCodeUpdate(eventData.fullHtml);
+          }
+          break;
+
+        case 'reply':
+          // AI回复（暂时不显示在对话框中）
+          console.log('AI回复:', eventData.content);
+          break;
+
+        case 'complete':
+          // 生成完成
+          console.log('生成完成:', eventData);
+          if (onCodeUpdate && eventData.content) {
+            onCodeUpdate(eventData.content);
+          }
+
+          // 如果代码被自动补全，显示提示
+          if (eventData.autoCompleted) {
+            toast.success('代码已自动补全，确保完整性！');
+          } else {
+            toast.success('网站生成完成！');
+          }
+          break;
+
+        case 'error':
+          // 错误处理
+          console.error('流式生成错误:', eventData.error);
+          toast.error(eventData.error || '生成失败');
+          break;
+      }
+    } catch (error) {
+      console.error('处理流式事件错误:', error);
+    }
+  }, [onCodeUpdate]);
+
+  // 处理生成连接
+  const handleGenerateConnection = useCallback(async (prompt: string) => {
+    try {
+      setIsConnecting(true);
+      setConnectionStatus('connecting');
+
+      // 清理之前的连接
+      cleanupConnection();
+
+      // 创建新的AbortController
+      abortControllerRef.current = new AbortController();
+
+      // 获取认证token
+      const token = localStorage.getItem('auth-token');
+      if (!token) {
+        throw new Error('请先登录');
+      }
+
+      // 发起生成请求
+      const response = await fetch('/api/ai/generate-stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({
+          prompt,
+          mode: 'generate',
+          customPrompt: userSettings.generatePrompt
+        }),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      if (!response.body) {
+        throw new Error('响应体为空');
+      }
+
+      setConnectionStatus('connected');
+
+      // 读取流式响应
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          // 检查是否被取消
+          if (abortControllerRef.current?.signal.aborted) {
+            console.log('请求被取消，停止读取');
+            break;
+          }
+
+          const { done, value } = await reader.read();
+
+          if (done) {
+            console.log('流式响应读取完成');
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.trim() === '') continue;
+
+            if (line.startsWith('data: ')) {
+              try {
+                const jsonStr = line.slice(6).trim();
+                if (!jsonStr) continue;
+
+                const eventData = JSON.parse(jsonStr);
+                handleStreamEvent(eventData);
+
+              } catch (parseError) {
+                console.error('解析SSE数据错误:', parseError, line);
+              }
+            }
+          }
+        }
+
+      } catch (readError: any) {
+        if (readError?.name !== 'AbortError') {
+          console.error('读取流时出错:', readError);
+          throw readError;
+        } else {
+          console.log('读取被中断');
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+    } catch (error: any) {
+      console.error('生成连接失败:', error);
+      setConnectionStatus('error');
+
+      // 添加错误消息到对话框
+      const errorMessage: Message = {
+        id: `error-${Date.now()}`,
+        role: 'assistant',
+        content: `生成失败：${error.message}`,
+        timestamp: new Date(),
+        error: true
+      };
+
+      setMessages(prev => [...prev, errorMessage]);
+      toast.error(error.message);
+    } finally {
+      setIsConnecting(false);
+      setStreamingMessageId(null);
+    }
+  }, [cleanupConnection, userSettings.generatePrompt, handleStreamEvent]);
+
+  // 处理编辑连接
+  const handleEditConnection = useCallback(async (instructions: string) => {
+    // 创建助手消息ID
+    const assistantMessageId = `assistant-${Date.now()}`;
+
+    try {
+      setIsConnecting(true);
+      setConnectionStatus('connecting');
+
+      // 清理之前的连接
+      cleanupConnection();
+
+      // 创建新的AbortController
+      abortControllerRef.current = new AbortController();
+
+      // 获取认证token
+      const token = localStorage.getItem('auth-token');
+      if (!token) {
+        throw new Error('请先登录');
+      }
+
+      // 发起编辑请求
+      const response = await fetch('/api/ai/edit-stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({
+          instructions,
+          mode: 'edit',
+          customPrompt: userSettings.editPrompt
+        }),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      if (!response.body) {
+        throw new Error('响应体为空');
+      }
+
+      setConnectionStatus('connected');
+
+      // 创建助手消息
+      const assistantMessage: Message = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        isStreaming: true,
+        mode: 'edit'
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+      setStreamingMessageId(assistantMessageId);
+
+      // 读取流式响应
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          // 检查是否被取消
+          if (abortControllerRef.current?.signal.aborted) {
+            console.log('请求被取消，停止读取');
+            break;
+          }
+
+          const { done, value } = await reader.read();
+
+          if (done) {
+            console.log('流式响应读取完成');
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.trim() === '') continue;
+
+            if (line.startsWith('data: ')) {
+              try {
+                const jsonStr = line.slice(6).trim();
+                if (!jsonStr) continue;
+
+                const eventData: SSEEvent = JSON.parse(jsonStr);
+                await handleSSEEvent(eventData, assistantMessageId);
+
+              } catch (parseError) {
+                console.error('解析SSE数据错误:', parseError, line);
+              }
+            }
+          }
+        }
+
+      } catch (readError: any) {
+        if (readError?.name !== 'AbortError') {
+          console.error('读取流时出错:', readError);
+          throw readError;
+        } else {
+          console.log('读取被中断');
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+    } catch (error: any) {
+      console.error('编辑连接失败:', error);
+      setConnectionStatus('error');
+
+      // 添加错误消息
+      flushSync(() => {
+        setMessages(prev => prev.map(msg =>
+          msg.id === assistantMessageId
+            ? { ...msg, content: `错误：${error.message}`, error: true, isStreaming: false }
+            : msg
+        ));
+      });
+
+      toast.error(error.message);
+    } finally {
+      setIsConnecting(false);
+      setStreamingMessageId(null);
+    }
+  }, [cleanupConnection, userSettings.editPrompt, handleSSEEvent]);
 
   // 发送消息
   const handleSendMessage = useCallback(async () => {
     const trimmedInput = inputValue.trim();
     if (!trimmedInput || isConnecting) return;
 
+    // 自动判断模式（如果当前是chat模式）
+    let messageMode = currentMode;
+    if (currentMode === 'chat') {
+      const detected = detectModeFromMessage(trimmedInput);
+      if (detected !== 'chat') {
+        messageMode = detected;
+        toast.success(`自动识别为${AI_MODES[detected].name}，使用对应提示词`);
+      }
+    }
+
     // 创建用户消息
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       role: 'user',
       content: trimmedInput,
-      timestamp: new Date()
+      timestamp: new Date(),
+      mode: messageMode
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    // 只在非生成模式下在对话框中显示用户消息
+    if (messageMode !== 'generate') {
+      setMessages(prev => [...prev, userMessage]);
+    }
+
     setInputValue('');
-    
+
     // 聚焦输入框
     setTimeout(() => inputRef.current?.focus(), 0);
 
-    // 启动SSE连接
-    await handleSSEConnection(trimmedInput);
-  }, [inputValue, isConnecting, handleSSEConnection]);
+    try {
+      // 根据模式调用不同的API
+      if (messageMode === 'chat') {
+        await handleSSEConnection(trimmedInput, messageMode);
+      } else if (messageMode === 'generate') {
+        // 生成模式：直接开始生成，不显示在对话框中
+        toast.success('开始生成网页，请查看代码编辑器...');
+        await handleGenerateConnection(trimmedInput);
+      } else if (messageMode === 'edit') {
+        await handleEditConnection(trimmedInput);
+      }
+    } catch (error) {
+      console.error('发送消息失败:', error);
+      toast.error('发送消息失败，请重试');
+    }
+  }, [inputValue, isConnecting, currentMode, detectModeFromMessage, handleSSEConnection, handleGenerateConnection, handleEditConnection, setMessages]);
 
   // 键盘事件处理
   const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
@@ -341,7 +765,7 @@ export default function AIAssistant({ className = '' }: AIAssistantProps) {
   // 组件初始化时测试连接
   useEffect(() => {
     testAIConnection();
-  }, []); // 只在组件挂载时执行一次
+  }, [testAIConnection]); // 只在组件挂载时执行一次
 
   // 组件卸载时清理
   useEffect(() => {
@@ -373,36 +797,103 @@ export default function AIAssistant({ className = '' }: AIAssistantProps) {
                 connectionStatus === 'error' ? 'bg-red-500' : 'bg-gray-400'
               }`} />
               <span className="text-gray-600">
-                {connectionStatus === 'connected' ? '创建模式' :
-                 connectionStatus === 'connecting' ? '生成中...' :
+                {connectionStatus === 'connected' ? `${currentModeConfig.name}` :
+                 connectionStatus === 'connecting' ? `${currentModeConfig.name}中...` :
                  connectionStatus === 'testing' ? '连接中...' :
                  connectionStatus === 'error' ? '连接错误' : '未连接'}
               </span>
             </div>
           </div>
         </div>
-        
-        {/* 重连按钮 - 只在断开或错误时显示 */}
-        {(connectionStatus === 'disconnected' || connectionStatus === 'error') && (
+
+        <div className="flex items-center gap-2">
+          {/* 模式切换器 */}
+          <div className="relative">
+            <button
+              onClick={() => setShowModeSelector(!showModeSelector)}
+              className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all ${
+                currentModeConfig.color
+              } text-white hover:opacity-90`}
+            >
+              <currentModeConfig.icon className="w-4 h-4" />
+              <span>{currentModeConfig.name}</span>
+              <Settings className="w-3 h-3" />
+            </button>
+
+            {/* 模式选择下拉菜单 */}
+            {showModeSelector && (
+              <div className="absolute top-full right-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                <div className="p-2">
+                  <div className="text-xs font-medium text-gray-500 mb-2">选择AI模式</div>
+                  {Object.entries(AI_MODES).map(([mode, config]) => (
+                    <button
+                      key={mode}
+                      onClick={() => handleModeChange(mode as AIMode)}
+                      className={`w-full flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-colors ${
+                        currentMode === mode
+                          ? `${config.color} text-white`
+                          : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      <config.icon className="w-4 h-4" />
+                      <div className="flex-1 text-left">
+                        <div className="font-medium">{config.name}</div>
+                        <div className="text-xs opacity-75">{config.description}</div>
+                      </div>
+                      {currentMode === mode && (
+                        <div className="w-2 h-2 bg-white rounded-full" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <div className="border-t border-gray-200 p-2">
+                  <div className="text-xs text-gray-500">
+                    💡 对话模式下会自动识别您的意图
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 重连按钮 - 只在断开或错误时显示 */}
+          {(connectionStatus === 'disconnected' || connectionStatus === 'error') && (
+            <button
+              onClick={testAIConnection}
+              disabled={connectionStatus === 'testing'}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${connectionStatus === 'testing' ? 'animate-spin' : ''}`} />
+              重新连接
+            </button>
+          )}
+
           <button
-            onClick={testAIConnection}
-            disabled={connectionStatus === 'testing'}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors disabled:opacity-50"
+            onClick={handleClearConversation}
+            disabled={isConnecting}
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            title="清除对话"
           >
-            <RefreshCw className={`w-4 h-4 ${connectionStatus === 'testing' ? 'animate-spin' : ''}`} />
-            重新连接
+            <RefreshCw className="w-4 h-4" />
           </button>
-        )}
-        
-        <button
-          onClick={handleClearConversation}
-          disabled={isConnecting}
-          className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-          title="清除对话"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        </div>
       </div>
+
+      {/* 模式信息提示 */}
+      {currentMode !== 'chat' && (
+        <div className={`${currentModeConfig.color} text-white px-4 py-2 text-sm flex items-center justify-between`}>
+          <div className="flex items-center gap-2">
+            <currentModeConfig.icon className="w-4 h-4" />
+            <span>{currentModeConfig.description}</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs opacity-90">
+            {userSettings[`${currentMode}Prompt`] && (
+              <span>使用自定义提示词</span>
+            )}
+          </div>
+        </div>
+      )}
+
+
 
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -476,14 +967,16 @@ export default function AIAssistant({ className = '' }: AIAssistantProps) {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="输入消息..."
+            placeholder={currentModeConfig.placeholder}
             disabled={isConnecting}
             className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
           />
           <button
             onClick={handleSendMessage}
             disabled={!inputValue.trim() || isConnecting}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            className={`px-4 py-2 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 ${
+              currentModeConfig.color
+            } hover:opacity-90`}
           >
             {isConnecting ? (
               <Loader2 className="w-4 h-4 animate-spin" />

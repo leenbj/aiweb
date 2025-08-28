@@ -307,86 +307,28 @@ class DeepSeekProvider implements AIProvider {
             timestamp: new Date().toISOString()
           });
           
-          // 🔥 临时简化：直接发送原始内容进行测试
-          // 这样可以验证是否是JSON解析逻辑导致的延迟
-          
-          // 立即发送原始内容作为reply，绕过JSON解析
-          onChunk({ type: 'reply', content: content });
-          
-          // 同时保留原有的JSON解析逻辑作为备用
-          /*
-          // 逐字符分析实现真正的流式解析
-          for (let i = 0; i < content.length; i++) {
-            const char = content[i];
-            
-            // 检测JSON开始
-            if (char === '{' && !insideJson) {
-              insideJson = true;
-              continue;
-            }
-            
-            if (!insideJson) continue;
-            
-            // 在JSON内部进行字段检测
-            if (buffer.includes('"reply"') && !insideReplyField && !insideHtmlField) {
-              const replyMatch = buffer.match(/"reply"\s*:\s*"/);
-              if (replyMatch) {
-                insideReplyField = true;
-                // 清理buffer，只保留reply字段值之后的内容
-                const matchEnd = buffer.indexOf(replyMatch[0]) + replyMatch[0].length;
-                buffer = buffer.substring(matchEnd);
-                i = buffer.length - 1; // 重置索引
-                continue;
-              }
-            }
-            
-            if (buffer.includes('"html"') && !insideHtmlField && !insideReplyField) {
-              const htmlMatch = buffer.match(/"html"\s*:\s*"/);
-              if (htmlMatch) {
-                insideHtmlField = true;
-                // 清理buffer，只保留html字段值之后的内容
-                const matchEnd = buffer.indexOf(htmlMatch[0]) + htmlMatch[0].length;
-                buffer = buffer.substring(matchEnd);
-                i = buffer.length - 1; // 重置索引
-                continue;
-              }
-            }
-            
-            // 处理reply字段内容
-            if (insideReplyField) {
-              if (char === '"' && (i === 0 || content[i-1] !== '\\')) {
-                // reply字段结束
-                insideReplyField = false;
-                buffer = '';
-              } else {
-                // 累积reply内容并实时发送
-                replyContent += char;
-                if (replyContent.length > sentReplyLength) {
-                  const newReplyChunk = replyContent.substring(sentReplyLength);
-                  onChunk({ type: 'reply', content: newReplyChunk });
-                  sentReplyLength = replyContent.length;
-                }
-              }
-            }
-            
-            // 处理html字段内容
-            if (insideHtmlField) {
-              if (char === '"' && (i === 0 || content[i-1] !== '\\')) {
-                // html字段结束
-                insideHtmlField = false;
-                buffer = '';
-              } else {
-                // 累积html内容并实时发送
-                htmlContent += char;
-                if (htmlContent.length > sentHtmlLength) {
-                  const newHtmlChunk = htmlContent.substring(sentHtmlLength);
-                  onChunk({ type: 'html', content: newHtmlChunk });
-                  sentHtmlLength = htmlContent.length;
-                }
-              }
-            }
+          // 🚀 生成模式优化：智能检测内容类型，只发送HTML代码
+          const trimmedContent = content.trim();
+
+          // 检查是否是HTML代码（而不是描述性文字）
+          const isHtmlContent = (
+            trimmedContent.includes('<!DOCTYPE') ||
+            trimmedContent.includes('<html') ||
+            trimmedContent.includes('<head') ||
+            trimmedContent.includes('<body') ||
+            trimmedContent.includes('<div') ||
+            trimmedContent.includes('<script') ||
+            trimmedContent.includes('<style') ||
+            trimmedContent.includes('<') && trimmedContent.includes('>') && !trimmedContent.includes('我') && !trimmedContent.includes('将') && !trimmedContent.includes('创建')
+          );
+
+          if (isHtmlContent) {
+            // 发送HTML代码块
+            onChunk({ type: 'html', content: content });
+          } else {
+            // 对于描述性文字，只记录不发送，避免在代码编辑器中显示
+            console.log('📝 跳过描述性文字:', content.substring(0, 50) + '...');
           }
-          */
         }
       }
 
@@ -668,13 +610,14 @@ HTML代码要求：
                   }
                 }
                 
-                if (parsed.reply && parsed.reply !== currentReply) {
-                  const replyDiff = parsed.reply.substring(currentReply.length);
-                  if (replyDiff) {
-                    onChunk({ type: 'reply', content: replyDiff });
-                    currentReply = parsed.reply;
-                  }
-                }
+                // 🚀 生成模式优化：不发送reply块，只发送HTML代码
+                // if (parsed.reply && parsed.reply !== currentReply) {
+                //   const replyDiff = parsed.reply.substring(currentReply.length);
+                //   if (replyDiff) {
+                //     onChunk({ type: 'reply', content: replyDiff });
+                //     currentReply = parsed.reply;
+                //   }
+                // }
               }
             } catch (parseError) {
               // JSON还不完整，继续累积
@@ -706,20 +649,21 @@ HTML代码要求：
             onChunk({ type: 'html', content: remainingHtml });
           }
           
-          // 发送剩余的回复内容（如果有）
-          if (parsedResponse.reply.length > currentReply.length) {
-            const remainingReply = parsedResponse.reply.substring(currentReply.length);
-            onChunk({ type: 'reply', content: remainingReply });
-          }
+          // 🚀 生成模式优化：不发送剩余的回复内容，只发送HTML代码
+          // if (parsedResponse.reply.length > currentReply.length) {
+          //   const remainingReply = parsedResponse.reply.substring(currentReply.length);
+          //   onChunk({ type: 'reply', content: remainingReply });
+          // }
         } else {
           // 如果JSON格式不正确，将整个内容作为HTML
-          onChunk({ type: 'reply', content: 'I have created a responsive website for you. I hope you like it!' });
+          // 🚀 生成模式优化：不发送描述性回复，只发送HTML代码
+          // onChunk({ type: 'reply', content: 'I have created a responsive website for you. I hope you like it!' });
           onChunk({ type: 'html', content: fullContent });
         }
       } catch (error) {
         // 如果不是JSON格式，将整个内容作为HTML
-  
-        onChunk({ type: 'reply', content: 'I have created a responsive website for you. I hope you like it!' });
+        // 🚀 生成模式优化：不发送描述性回复，只发送HTML代码
+        // onChunk({ type: 'reply', content: 'I have created a responsive website for you. I hope you like it!' });
         onChunk({ type: 'html', content: fullContent });
       }
 
@@ -1245,7 +1189,7 @@ export class AIService {
     }
   }
 
-  async chat(messages: Array<{role: 'system' | 'user' | 'assistant', content: string}>, userId?: string): Promise<string> {
+    async chat(messages: Array<{role: 'system' | 'user' | 'assistant', content: string}>, userId?: string): Promise<string> {
     try {
       logger.info('Chat with AI', { messagesCount: messages.length, userId });
 
@@ -1253,7 +1197,7 @@ export class AIService {
         const { provider, settings } = await this.getUserProviderInternal(userId);
         const customPrompt = settings?.systemPrompt;
         const model = this.getModelFromSettingsInternal(settings);
-        
+
         if (provider.chat) {
           const result = await provider.chat(messages, userId, customPrompt, model);
           logger.info('Chat completed successfully');
@@ -1278,12 +1222,12 @@ export class AIService {
       }
     } catch (error: any) {
       logger.error('Failed to chat with AI:', error);
-      
+
       // 使用Mock Provider作为后备
       logger.warn('AI服务不可用，切换到演示模式');
       const mockProvider = new MockProvider();
       const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
-      
+
       // 模拟对话回复
       return `我理解您说的"${lastUserMessage}"。作为AI助手，我可以帮助您创建网站。请告诉我您想要什么类型的网站，我会为您提供详细的建议。`;
     }
@@ -1297,7 +1241,7 @@ export class AIService {
         const { provider, settings } = await this.getUserProviderInternal(userId);
         const customPrompt = settings?.systemPrompt;
         const model = this.getModelFromSettingsInternal(settings);
-        
+
         // 详细的调试日志
         logger.info('🔍 AI生成网站 - 用户设置详情', {
           userId,
@@ -1309,7 +1253,7 @@ export class AIService {
           selectedModel: model,
           providerType: provider.constructor.name
         });
-        
+
         const result = await provider.generateWebsite(prompt, userId, customPrompt, model);
         logger.info('Website generated successfully');
         return result;
@@ -1487,7 +1431,7 @@ export class AIService {
         const { provider, settings } = await this.getUserProviderInternal(userId);
         const customPrompt = settings?.systemPrompt;
         const model = this.getModelFromSettingsInternal(settings);
-        
+
         // 详细的调试日志
         logger.info('🔍 AI编辑网站 - 用户设置详情', {
           userId,
@@ -1500,7 +1444,7 @@ export class AIService {
           providerType: provider.constructor.name,
           instructionsLength: instructions.length
         });
-        
+
         const result = await provider.editWebsite(content, instructions, userId, customPrompt, model);
         logger.info('Website edited successfully');
         return result;

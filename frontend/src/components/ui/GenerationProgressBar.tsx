@@ -21,11 +21,44 @@ export const GenerationProgressBar: React.FC<GenerationProgressBarProps> = ({
   const [codeProgress, setCodeProgress] = useState(0);
   const [smoothProgress, setSmoothProgress] = useState(0);
 
-  // 基于代码长度计算实际进度
+  // 基于代码长度和生成阶段计算实际进度
   useEffect(() => {
     if (currentCode) {
-      const newCodeProgress = Math.min((currentCode.length / estimatedTotal) * 100, 90);
+      // 根据代码内容特征动态评估进度
+      const codeLength = currentCode.length;
+      const hasDOCTYPE = currentCode.includes('<!DOCTYPE');
+      const hasHtml = currentCode.includes('<html');
+      const hasHead = currentCode.includes('<head');
+      const hasBody = currentCode.includes('<body');
+      const hasStyles = currentCode.includes('<style') || currentCode.includes('css');
+      const hasScripts = currentCode.includes('<script');
+      const hasContent = currentCode.includes('<h1') || currentCode.includes('<div') || currentCode.includes('<section');
+
+      let baseProgress = 0;
+
+      // 根据代码结构特征计算基础进度
+      if (hasDOCTYPE) baseProgress += 10;
+      if (hasHtml) baseProgress += 10;
+      if (hasHead) baseProgress += 15;
+      if (hasBody) baseProgress += 15;
+      if (hasStyles) baseProgress += 20;
+      if (hasScripts) baseProgress += 10;
+      if (hasContent) baseProgress += 20;
+
+      // 根据代码长度调整进度
+      const lengthProgress = Math.min((codeLength / estimatedTotal) * 100, 60);
+
+      // 综合计算进度
+      const newCodeProgress = Math.min(baseProgress + lengthProgress, 95);
       setCodeProgress(newCodeProgress);
+
+      console.log('进度计算详情:', {
+        codeLength,
+        features: { hasDOCTYPE, hasHtml, hasHead, hasBody, hasStyles, hasScripts, hasContent },
+        baseProgress,
+        lengthProgress,
+        totalProgress: newCodeProgress
+      });
     }
   }, [currentCode, estimatedTotal]);
 
@@ -63,11 +96,11 @@ export const GenerationProgressBar: React.FC<GenerationProgressBarProps> = ({
   // 进度阶段配置
   const progressStages = [
     { threshold: 0, icon: Sparkles, label: '初始化', color: 'from-blue-400 to-blue-500' },
-    { threshold: 20, icon: Code, label: '分析需求', color: 'from-purple-400 to-purple-500' },
-    { threshold: 40, icon: Zap, label: '生成结构', color: 'from-indigo-400 to-indigo-500' },
-    { threshold: 60, icon: Code, label: '编写代码', color: 'from-violet-400 to-violet-500' },
-    { threshold: 80, icon: Sparkles, label: '优化样式', color: 'from-pink-400 to-pink-500' },
-    { threshold: 95, icon: Zap, label: '最终优化', color: 'from-emerald-400 to-emerald-500' },
+    { threshold: 15, icon: Code, label: '创建文档结构', color: 'from-purple-400 to-purple-500' },
+    { threshold: 35, icon: Zap, label: '构建HTML框架', color: 'from-indigo-400 to-indigo-500' },
+    { threshold: 55, icon: Code, label: '添加样式设计', color: 'from-violet-400 to-violet-500' },
+    { threshold: 75, icon: Sparkles, label: '完善内容布局', color: 'from-pink-400 to-pink-500' },
+    { threshold: 90, icon: Zap, label: '最终优化', color: 'from-emerald-400 to-emerald-500' },
   ];
 
   const currentStage = progressStages
@@ -184,7 +217,10 @@ export const GenerationProgressBar: React.FC<GenerationProgressBarProps> = ({
             <span>实时生成中...</span>
           </div>
           <div className="text-xs text-gray-500">
-            预计还需 {Math.max(0, Math.round((100 - smoothProgress) * 0.5))} 秒
+            {currentCode && currentCode.length > 1000
+              ? `已生成 ${(currentCode.length / 1000).toFixed(1)}K 字符`
+              : `预计还需 ${Math.max(0, Math.round((100 - smoothProgress) * 0.8))} 秒`
+            }
           </div>
         </div>
       </div>

@@ -36,9 +36,16 @@ export const VisualEditor: React.FC<VisualEditorProps> = ({
     console.log('VisualEditor: Content changed', {
       contentLength: content?.length,
       isHTML: content?.includes('<html'),
+      isGenerating,
+      generationProgress,
       preview: content?.substring(0, 100) + '...'
     });
-  }, [content]);
+
+    // 如果正在生成且有新内容，强制更新预览
+    if (isGenerating && content && content.length > 0) {
+      console.log('VisualEditor: Forcing preview update during generation');
+    }
+  }, [content, isGenerating, generationProgress]);
 
   const addToHistory = (newContent: string) => {
     const newHistory = history.slice(0, historyIndex + 1);
