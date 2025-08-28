@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate } from '../middleware/auth';
 import type { AuthRequest } from '../middleware/auth';
-import { aiService } from '../services/ai';
+import { aiService, extractPureHtmlFromResponse } from '../services/ai';
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
 import { getDefaultPrompt, PromptType } from '../constants/prompts';
@@ -740,15 +740,19 @@ router.post('/generate-stream', authenticate, async (req: any, res: Response) =>
             // });
             
             if (chunk.type === 'html') {
-              fullHtml += chunk.content;
-              const responseData = { type: 'html_chunk', content: chunk.content, fullHtml };
-              res.write(`data: ${JSON.stringify(responseData)}\n\n`);
-              // console.log(`📤 [${timestamp}] HTML块已写入响应流`);
+              // 在累积到fullHtml之前，先验证内容是否为纯净HTML
+              const pureHtml = extractPureHtmlFromResponse(chunk.content);
+              if (pureHtml) {
+                fullHtml += pureHtml;
+                const responseData = { type: 'html_chunk', content: pureHtml, fullHtml };
+                res.write(`data: ${JSON.stringify(responseData)}\n\n`);
+                console.log(`📤 [${timestamp}] 纯净HTML块已写入响应流 (${pureHtml.length} chars)`);
+              } else {
+                console.log(`⏭️ [${timestamp}] 跳过非纯净HTML内容: ${chunk.content.substring(0, 50)}...`);
+              }
             } else if (chunk.type === 'reply') {
-              aiReply += chunk.content; // 修复：追加内容而不是覆盖
-              const responseData = { type: 'reply', content: chunk.content };
-              res.write(`data: ${JSON.stringify(responseData)}\n\n`);
-              // console.log(`📤 [${timestamp}] Reply块已写入响应流`);
+              // 不累积reply内容到fullHtml，只记录
+              console.log(`📝 [${timestamp}] Reply内容: ${chunk.content.substring(0, 50)}...`);
             }
           }, userId, customPrompt, model);
         } else {

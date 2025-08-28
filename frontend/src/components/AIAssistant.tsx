@@ -95,24 +95,43 @@ function extractPureHtml(content: string): string | null {
     }
   }
 
-  // 3. 移除任何描述性文字（常见模式）
+  // 3. 移除任何描述性文字（增强版模式匹配）
   const descriptionPatterns = [
     /^我.*?(?:创建|生成|为您制作).*?网站.*?:?\s*/i,
     /^我已经.*?(?:创建|生成|完成).*?\.?\s*/i,
     /^这是一个.*?(?:网站|网页).*?\.?\s*/i,
     /^以下是.*?(?:代码|HTML).*?:?\s*/i,
     /^Here is.*?website.*?code:?\s*/i,
-    /^I've created.*?website.*?for you:?\s*/i
+    /^I've created.*?website.*?for you:?\s*/i,
+    /^生成.*?HTML.*?代码:?\s*/i,
+    /^网站.*?代码.*?如下:?\s*/i,
+    /^HTML.*?代码:?\s*/i,
+    /^以下是.*?生成的.*?代码:?\s*/i
   ];
 
   for (const pattern of descriptionPatterns) {
     cleanContent = cleanContent.replace(pattern, '');
   }
 
-  // 4. 移除多余的空白和换行
+  // 4. 移除其他可能的干扰内容
+  const interferencePatterns = [
+    /^\s*```html\s*$/m,  // 开头的markdown代码块标记
+    /^\s*```\s*$/m,      // 结尾的markdown代码块标记
+    /^\s*<pre[^>]*>.*?<\/pre>\s*$/m, // pre标签包装
+    /^\s*<code[^>]*>.*?<\/code>\s*$/m, // code标签包装
+    /^\s*HTML代码：\s*/i,
+    /^\s*网页代码：\s*/i,
+    /^\s*网站代码：\s*/i
+  ];
+
+  for (const pattern of interferencePatterns) {
+    cleanContent = cleanContent.replace(pattern, '');
+  }
+
+  // 5. 移除多余的空白和换行
   cleanContent = cleanContent.replace(/\n{3,}/g, '\n\n').trim();
 
-  // 5. 过滤不完整的标签序列（如<html<head<body）
+  // 6. 过滤不完整的标签序列（如<html<head<body）
   const incompleteTagPatterns = [
     /^<html<head<body.*$/,  // 开头就是不完整的标签序列
     /^<html<head.*$/,       // 不完整的html+head序列
@@ -128,7 +147,7 @@ function extractPureHtml(content: string): string | null {
     }
   }
 
-  // 6. 检查是否有重复的开始标签
+  // 7. 检查是否有重复的开始标签
   const duplicateStartTags = [
     /<html[^>]*>.*<html[^>]*>/,  // 重复的html标签
     /<head[^>]*>.*<head[^>]*>/,  // 重复的head标签
@@ -142,7 +161,7 @@ function extractPureHtml(content: string): string | null {
     }
   }
 
-  // 7. 验证是否是有效的HTML代码
+  // 8. 验证是否是有效的HTML代码
   const isValidHtml = (
     cleanContent.includes('<!DOCTYPE html>') ||
     cleanContent.includes('<html') ||
@@ -151,17 +170,17 @@ function extractPureHtml(content: string): string | null {
       cleanContent.includes('<div') || cleanContent.includes('<section')))
   );
 
-  // 8. 确保内容长度合理且包含HTML标签
+  // 9. 确保内容长度合理且包含HTML标签
   const hasHtmlTags = /<[^>]+>/.test(cleanContent);
   const isReasonableLength = cleanContent.length > 20 && cleanContent.length < 50000;
 
-  // 9. 确保HTML结构基本完整
+  // 10. 确保HTML结构基本完整
   const hasBasicStructure = (
     cleanContent.includes('<html') || // 有html标签，或者
     (cleanContent.includes('<head') && cleanContent.includes('<body')) // 既有head又有body
   );
 
-  // 10. 严格验证标准HTML文档格式
+  // 11. 严格验证标准HTML文档格式
   const isStandardHtmlDocument = (
     cleanContent.startsWith('<!DOCTYPE html>') && // 必须以DOCTYPE开头
     cleanContent.includes('<html lang="zh-CN"') && // 必须包含中文html标签
@@ -174,7 +193,7 @@ function extractPureHtml(content: string): string | null {
     return cleanContent;
   }
 
-  // 11. 如果不是标准格式，尝试标准化
+  // 12. 如果不是标准格式，尝试标准化
   if (isValidHtml && hasHtmlTags && isReasonableLength && hasBasicStructure) {
     const standardizedHtml = standardizeHtmlDocument(cleanContent);
     if (standardizedHtml) {

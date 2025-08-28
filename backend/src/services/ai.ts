@@ -11,7 +11,7 @@ import { getDefaultPrompt, PromptType } from '../constants/prompts';
  * @param content AI响应内容（可能包含JSON、描述文字等）
  * @returns 纯净的HTML代码或null
  */
-function extractPureHtmlFromResponse(content: string): string | null {
+export function extractPureHtmlFromResponse(content: string): string | null {
   if (!content || typeof content !== 'string') {
     return null;
   }
@@ -524,8 +524,14 @@ class DeepSeekProvider implements AIProvider {
               // 发送标准化的HTML代码块
               onChunk({ type: 'html', content: standardizedHtml });
             } else {
-              // 如果标准化失败，发送原始内容
-              onChunk({ type: 'html', content: content });
+              // 如果标准化失败，尝试使用后端过滤函数
+              const filteredHtml = extractPureHtmlFromResponse(content);
+              if (filteredHtml) {
+                onChunk({ type: 'html', content: filteredHtml });
+              } else {
+                // 如果过滤也失败，记录但不发送
+                console.log('❌ 过滤失败，跳过内容:', content.substring(0, 50) + '...');
+              }
             }
           } else {
             // 对于描述性文字，只记录不发送，避免在代码编辑器中显示
@@ -853,8 +859,14 @@ Return ONLY JSON format, no markdown code blocks.`;
                 // 发送标准化的HTML代码块
                 onChunk({ type: 'html', content: standardizedHtml });
               } else {
-                // 如果标准化失败，发送原始内容
-                onChunk({ type: 'html', content: content });
+                // 如果标准化失败，尝试使用后端过滤函数
+                const filteredHtml = extractPureHtmlFromResponse(content);
+                if (filteredHtml) {
+                  onChunk({ type: 'html', content: filteredHtml });
+                } else {
+                  // 如果过滤也失败，记录但不发送
+                  console.log('❌ 过滤失败，跳过内容:', content.substring(0, 50) + '...');
+                }
               }
             }
           }
