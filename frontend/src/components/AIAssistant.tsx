@@ -63,13 +63,15 @@ interface SSEEvent {
 // 组件属性
 interface AIAssistantProps {
   onCodeUpdate?: (code: string) => void;
+  onGenerationStart?: () => void;
+  onGenerationEnd?: () => void;
   className?: string;
 }
 
 /**
  * AI助手组件 - 全新设计，专注于实时流式对话
  */
-export default function AIAssistant({ onCodeUpdate, className = '' }: AIAssistantProps) {
+export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerationEnd, className = '' }: AIAssistantProps) {
   // 状态管理
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -404,9 +406,41 @@ export default function AIAssistant({ onCodeUpdate, className = '' }: AIAssistan
     try {
       switch (eventData.type) {
         case 'html_chunk':
-          // HTML代码块
-          if (onCodeUpdate && eventData.fullHtml) {
-            onCodeUpdate(eventData.fullHtml);
+          // HTML代码块 - 实时流式显示
+          if (onCodeUpdate) {
+            // 优先使用fullHtml进行完整代码显示，确保实时更新
+            if (eventData.fullHtml && eventData.fullHtml.trim()) {
+              // 过滤掉不完整的HTML片段（如只有<html<head<body的代码）
+              const fullHtml = eventData.fullHtml.trim();
+
+              // 检查是否是有效的HTML代码（至少包含DOCTYPE或html标签）
+              const isValidHtml = fullHtml.includes('<!DOCTYPE') ||
+                                fullHtml.includes('<html') ||
+                                (fullHtml.includes('<') && fullHtml.includes('>'));
+
+              if (isValidHtml && fullHtml.length > 10) { // 确保不是太短的片段
+                console.log('🔄 实时更新完整代码:', {
+                  chunkLength: eventData.content?.length || 0,
+                  fullLength: fullHtml.length,
+                  preview: fullHtml.substring(0, 100) + '...',
+                  isValidHtml
+                });
+                onCodeUpdate(fullHtml);
+              } else {
+                console.log('⏭️ 跳过无效HTML片段:', {
+                  length: fullHtml.length,
+                  preview: fullHtml.substring(0, 50) + '...'
+                });
+              }
+            } else if (eventData.content && eventData.content.trim()) {
+              // 如果没有fullHtml，使用content进行增量显示
+              const content = eventData.content.trim();
+              console.log('🔄 增量更新代码块:', {
+                contentLength: content.length,
+                preview: content.substring(0, 50) + '...'
+              });
+              onCodeUpdate(content);
+            }
           }
           break;
 
@@ -428,6 +462,9 @@ export default function AIAssistant({ onCodeUpdate, className = '' }: AIAssistan
           } else {
             toast.success('网站生成完成！');
           }
+
+          // 通知父组件生成结束
+          onGenerationEnd?.();
           break;
 
         case 'error':
@@ -439,13 +476,16 @@ export default function AIAssistant({ onCodeUpdate, className = '' }: AIAssistan
     } catch (error) {
       console.error('处理流式事件错误:', error);
     }
-  }, [onCodeUpdate]);
+  }, [onCodeUpdate, onGenerationStart, onGenerationEnd]);
 
   // 处理生成连接
   const handleGenerateConnection = useCallback(async (prompt: string) => {
     try {
       setIsConnecting(true);
       setConnectionStatus('connecting');
+
+      // 通知父组件生成开始
+      onGenerationStart?.();
 
       // 清理之前的连接
       cleanupConnection();
@@ -554,11 +594,14 @@ export default function AIAssistant({ onCodeUpdate, className = '' }: AIAssistan
 
       setMessages(prev => [...prev, errorMessage]);
       toast.error(error.message);
+
+      // 通知父组件生成结束（即使出错）
+      onGenerationEnd?.();
     } finally {
       setIsConnecting(false);
       setStreamingMessageId(null);
     }
-  }, [cleanupConnection, userSettings.generatePrompt, handleStreamEvent]);
+  }, [cleanupConnection, userSettings.generatePrompt, handleStreamEvent, onGenerationStart, onGenerationEnd]);
 
   // 处理编辑连接
   const handleEditConnection = useCallback(async (instructions: string) => {

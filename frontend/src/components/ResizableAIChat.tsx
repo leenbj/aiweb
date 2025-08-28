@@ -7,6 +7,8 @@ interface ResizableAIChatProps {
   onWebsiteUpdated?: (content: string) => void;
   onGenerationProgress?: (progress: number, stage: string, partialCode?: string) => void;
   onCodeStreamUpdate?: (code: string) => void;
+  onGenerationStart?: () => void;
+  onGenerationEnd?: () => void;
   minWidth?: number;
   maxWidth?: number;
   defaultWidth?: number;
@@ -18,6 +20,8 @@ export const ResizableAIChat: React.FC<ResizableAIChatProps> = ({
   onWebsiteUpdated,
   onGenerationProgress,
   onCodeStreamUpdate,
+  onGenerationStart,
+  onGenerationEnd,
   minWidth = 280,
   maxWidth = 600,
   defaultWidth = 400,
@@ -103,6 +107,8 @@ export const ResizableAIChat: React.FC<ResizableAIChatProps> = ({
       <div className="h-full ml-1">
         <AIAssistant
           onCodeUpdate={onCodeStreamUpdate}
+          onGenerationStart={onGenerationStart}
+          onGenerationEnd={onGenerationEnd}
           className="h-full"
         />
       </div>

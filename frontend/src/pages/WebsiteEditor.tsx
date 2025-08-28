@@ -315,13 +315,25 @@ export const WebsiteEditor: React.FC = () => {
 
   const handleCodeStreamUpdate = (code: string) => {
     // 实时更新代码显示（用于Code视图中的实时代码生成展示）
-    console.log('WebsiteEditor: Real-time code update:', { 
+    console.log('WebsiteEditor: Real-time code update:', {
       codeLength: code?.length,
       preview: code?.substring(0, 100) + '...'
     });
-    
+
     // 更新内容，让用户在Code视图中看到实时生成的代码
     setContent(code);
+  };
+
+  const handleGenerationStart = () => {
+    console.log('WebsiteEditor: Generation started');
+    setIsGenerating(true);
+    setGenerationProgress({ progress: 0, stage: '开始生成...' });
+  };
+
+  const handleGenerationEnd = () => {
+    console.log('WebsiteEditor: Generation ended');
+    setIsGenerating(false);
+    setGenerationProgress({ progress: 100, stage: '生成完成' });
   };
 
   if (isLoading) {
@@ -412,6 +424,8 @@ export const WebsiteEditor: React.FC = () => {
             onWebsiteUpdated={handleWebsiteUpdated}
             onGenerationProgress={handleGenerationProgress}
             onCodeStreamUpdate={handleCodeStreamUpdate}
+            onGenerationStart={handleGenerationStart}
+            onGenerationEnd={handleGenerationEnd}
             minWidth={280}
             maxWidth={800}
             defaultWidth={400}
