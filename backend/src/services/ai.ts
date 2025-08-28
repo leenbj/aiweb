@@ -93,11 +93,80 @@ function extractPureHtmlFromResponse(content: string): string | null {
     (cleanContent.includes('<head') && cleanContent.includes('<body')) // 既有head又有body
   );
 
-  if (isValidHtml && hasHtmlTags && isReasonableLength && hasBasicStructure) {
+  // 9. 严格验证标准HTML文档格式
+  const isStandardHtmlDocument = (
+    cleanContent.startsWith('<!DOCTYPE html>') && // 必须以DOCTYPE开头
+    cleanContent.includes('<html lang="zh-CN"') && // 必须包含中文html标签
+    cleanContent.includes('</html>') && // 必须以</html>结束
+    !cleanContent.includes('<html') || cleanContent.indexOf('<html lang="zh-CN"') === cleanContent.indexOf('<!DOCTYPE html>') + '<!DOCTYPE html>'.length // html标签必须紧跟DOCTYPE
+  );
+
+  if (isStandardHtmlDocument) {
+    console.log('✅ 标准HTML文档验证通过');
     return cleanContent;
   }
 
+  // 10. 如果不是标准格式，尝试标准化
+  if (isValidHtml && hasHtmlTags && isReasonableLength && hasBasicStructure) {
+    const standardizedHtml = standardizeHtmlDocument(cleanContent);
+    if (standardizedHtml) {
+      console.log('🔄 HTML文档已标准化');
+      return standardizedHtml;
+    }
+  }
+
   return null; // 不是有效的HTML代码
+}
+
+/**
+ * 将不标准的HTML文档标准化为标准格式
+ * @param content HTML内容
+ * @returns 标准化的HTML文档或null
+ */
+function standardizeHtmlDocument(content: string): string | null {
+  if (!content || typeof content !== 'string') {
+    return null;
+  }
+
+  let html = content.trim();
+
+  // 1. 移除DOCTYPE前的任何内容
+  const doctypeIndex = html.indexOf('<!DOCTYPE html>');
+  if (doctypeIndex > 0) {
+    html = html.substring(doctypeIndex);
+  } else if (doctypeIndex === -1) {
+    // 如果没有DOCTYPE，添加一个
+    html = '<!DOCTYPE html>\n' + html;
+  }
+
+  // 2. 确保DOCTYPE后紧跟html标签
+  const afterDoctype = html.substring('<!DOCTYPE html>'.length).trim();
+  if (!afterDoctype.startsWith('<html')) {
+    // 如果DOCTYPE后不是html标签，添加标准html标签
+    html = html.replace(/<!DOCTYPE html>\s*/, '<!DOCTYPE html>\n<html lang="zh-CN">\n');
+  } else {
+    // 确保html标签包含正确的lang属性
+    html = html.replace(/<html[^>]*>/, '<html lang="zh-CN">');
+  }
+
+  // 3. 确保文档以</html>结束
+  if (!html.endsWith('</html>')) {
+    // 如果没有</html>，添加一个
+    html = html.trim() + '\n</html>';
+  }
+
+  // 4. 验证标准化后的文档
+  const isValidStandard = (
+    html.startsWith('<!DOCTYPE html>') &&
+    html.includes('<html lang="zh-CN"') &&
+    html.endsWith('</html>')
+  );
+
+  if (isValidStandard) {
+    return html;
+  }
+
+  return null;
 }
 
 interface AIProvider {
@@ -449,8 +518,15 @@ class DeepSeekProvider implements AIProvider {
           );
 
           if (isHtmlContent) {
-            // 发送HTML代码块
-            onChunk({ type: 'html', content: content });
+            // 尝试标准化HTML内容
+            const standardizedHtml = standardizeHtmlDocument(content);
+            if (standardizedHtml) {
+              // 发送标准化的HTML代码块
+              onChunk({ type: 'html', content: standardizedHtml });
+            } else {
+              // 如果标准化失败，发送原始内容
+              onChunk({ type: 'html', content: content });
+            }
           } else {
             // 对于描述性文字，只记录不发送，避免在代码编辑器中显示
             console.log('📝 跳过描述性文字:', content.substring(0, 50) + '...');
@@ -771,8 +847,15 @@ Return ONLY JSON format, no markdown code blocks.`;
             }
 
             if (isInHtmlBlock && (content.includes('<') || content.includes('>'))) {
-              // 实时发送HTML内容块
-              onChunk({ type: 'html', content: content });
+              // 尝试标准化HTML内容
+              const standardizedHtml = standardizeHtmlDocument(content);
+              if (standardizedHtml) {
+                // 发送标准化的HTML代码块
+                onChunk({ type: 'html', content: standardizedHtml });
+              } else {
+                // 如果标准化失败，发送原始内容
+                onChunk({ type: 'html', content: content });
+              }
             }
           }
           
