@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from '@/lib/router';
 import { 
   Plus, 
   Globe, 
@@ -20,7 +20,7 @@ import { zhCN } from 'date-fns/locale';
 
 export const Dashboard: React.FC = () => {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useRouter();
   const { user } = useAuthStore();
   const { 
     websites, 

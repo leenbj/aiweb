@@ -4,6 +4,7 @@ import { Key, Save, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { settingsService } from '../services/api';
 import { LoadingSpinner } from '../components/LoadingSpinner';
+import { AvatarShowcase } from '../components/AvatarShowcase';
 
 interface SettingsForm {
   deepseekApiKey: string;
@@ -430,6 +431,11 @@ export const Settings: React.FC = () => {
             </div>
           </div>
         </form>
+        
+        {/* Avatar Showcase */}
+        <div className="mt-8">
+          <AvatarShowcase />
+        </div>
       </div>
     </div>
   );

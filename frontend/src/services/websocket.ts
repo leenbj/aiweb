@@ -1,5 +1,5 @@
-import { useAuthStore } from '@/stores/authStore'
-import { useWebsiteStore } from '@/stores/websiteStore'
+import { useAuthStore } from '@/store/authStore'
+import { useWebsiteStore } from '@/store/websiteStore'
 import toast from 'react-hot-toast'
 
 class WebSocketService {

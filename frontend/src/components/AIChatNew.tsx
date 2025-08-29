@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { flushSync } from 'react-dom';
 import { Send, Bot, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Avatar, AvatarFallback } from './ui/avatar';
 import { useWebsiteStore } from '../store/websiteStore';
 import { aiService } from '../services/api';
 import { toast } from 'react-hot-toast';
@@ -163,9 +164,11 @@ export default function AIChatNew({ onCodeStreamUpdate }: AIChatProps) {
     <div className="flex flex-col h-full max-h-[600px] bg-white border border-slate-200 rounded-xl shadow-sm">
       {/* Header */}
       <div className="flex items-center space-x-3 p-4 border-b border-slate-200 bg-gradient-to-r from-violet-50 to-purple-50">
-        <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-purple-600 rounded-full flex items-center justify-center">
-          <Bot className="h-4 w-4 text-white" />
-        </div>
+        <Avatar variant="ai" size="md" showStatus={true} status="online">
+          <AvatarFallback variant="ai">
+            <Bot className="h-4 w-4" />
+          </AvatarFallback>
+        </Avatar>
         <div>
           <h3 className="font-semibold text-slate-800">AI 助手</h3>
           <p className="text-xs text-slate-600">帮您创建和编辑网站</p>
@@ -187,17 +190,19 @@ export default function AIChatNew({ onCodeStreamUpdate }: AIChatProps) {
               }`}
             >
               {/* Avatar */}
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
-                message.role === 'user' 
-                  ? 'bg-blue-500' 
-                  : 'bg-gradient-to-br from-violet-500 to-purple-600'
-              }`}>
-                {message.role === 'user' ? (
-                  <User className="h-4 w-4 text-white" />
-                ) : (
-                  <Bot className="h-4 w-4 text-white" />
-                )}
-              </div>
+              <Avatar 
+                variant={message.role === 'user' ? 'user' : 'ai'} 
+                size="sm"
+                className="w-7 h-7"
+              >
+                <AvatarFallback variant={message.role === 'user' ? 'user' : 'ai'}>
+                  {message.role === 'user' ? (
+                    <User className="h-3 w-3" />
+                  ) : (
+                    <Bot className="h-3 w-3" />
+                  )}
+                </AvatarFallback>
+              </Avatar>
 
               {/* Message Content */}
               <div className={`flex-1 max-w-[80%] ${
