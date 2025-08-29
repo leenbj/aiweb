@@ -79,30 +79,29 @@ class WebSocketService {
 
   private handleMessage(message: any) {
     switch (message.type) {
-      case 'authenticated':
-        console.log('WebSocket authenticated:', message.data)
-        break
-        
-      case 'auth_error':
-        console.error('WebSocket auth error:', message.message)
-        toast.error(`认证失败: ${message.message}`)
+      case 'auth':
+        console.log('WebSocket authenticated')
         break
         
       case 'error':
-        console.error('WebSocket error:', message.message)
-        toast.error(`WebSocket错误: ${message.message}`)
+        console.error('WebSocket error:', message.error)
+        toast.error(`WebSocket error: ${message.error}`)
         break
         
-      case 'deployment_status':
-        this.handleDeploymentStatus(message.data)
+      case 'deployment_update':
+        this.handleDeploymentStatus(message.payload)
         break
         
       case 'ai_progress':
-        this.handleAIProgress(message.data)
+        this.handleAIProgress(message.payload)
         break
         
       case 'pong':
         // Heartbeat response
+        break
+        
+      case 'connected':
+        console.log('WebSocket connected:', message.payload?.message)
         break
         
       default:

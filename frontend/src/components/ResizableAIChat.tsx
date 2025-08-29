@@ -15,10 +15,10 @@ interface ResizableAIChatProps {
 }
 
 export const ResizableAIChat: React.FC<ResizableAIChatProps> = ({
-  websiteId,
-  onWebsiteGenerated,
-  onWebsiteUpdated,
-  onGenerationProgress,
+  websiteId: _websiteId,
+  onWebsiteGenerated: _onWebsiteGenerated,
+  onWebsiteUpdated: _onWebsiteUpdated,
+  onGenerationProgress: _onGenerationProgress,
   onCodeStreamUpdate,
   onGenerationStart,
   onGenerationEnd,

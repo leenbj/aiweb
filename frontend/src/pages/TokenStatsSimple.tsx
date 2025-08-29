@@ -36,7 +36,12 @@ export const TokenStatsSimple: React.FC = () => {
       setError(null);
       const response = await tokenService.getOverview();
       console.log('API Response:', response.data); // 调试信息
-      setOverview(response.data.data);
+      setOverview(response.data?.data || {
+        today: { tokensUsed: 0, costRmb: 0, operations: 0 },
+        yesterday: { tokensUsed: 0, costRmb: 0 },
+        month: { tokensUsed: 0, costRmb: 0 },
+        providers: [],
+      });
     } catch (error: any) {
       console.error('Failed to load token overview:', error);
       setError(error.message || '加载数据失败');

@@ -21,11 +21,13 @@ interface AuthActions {
 // 统一token同步函数
 const syncTokens = (token: string | null) => {
   if (token) {
-    api.defaults.headers.common['Authorization'] = `Bearer ${token}`
     localStorage.setItem('auth-token', token)
+    // 使用API客户端的setAuthHeader方法
+    api.setAuthHeader?.(token)
   } else {
-    delete api.defaults.headers.common['Authorization']
     localStorage.removeItem('auth-token')
+    // 清除认证头
+    api.clearAuthHeader?.()
   }
 }
 
@@ -42,7 +44,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           set({ loading: true, error: null })
           
           const response = await api.post('/auth/login', { email, password })
-          const { user, token } = response.data
+          const { user, token } = response.data?.data || response.data || {}
           
           // 同步更新所有token存储
           syncTokens(token)
@@ -62,7 +64,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           set({ loading: true, error: null })
           
           const response = await api.post('/auth/register', { email, name, password })
-          const { user, token } = response.data
+          const { user, token } = response.data?.data || response.data || {}
           
           // 同步更新所有token存储
           syncTokens(token)
@@ -109,7 +111,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           syncTokens(token)
           
           const response = await api.get('/auth/me')
-          const { user } = response.data
+          const { user } = response.data?.data || response.data || {}
           
           set({ user, loading: false })
         } catch (error: any) {

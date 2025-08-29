@@ -34,7 +34,7 @@ export const useWebsiteStore = create<WebsiteState>((set, get) => ({
       set({ isLoading: true });
       
       const response = await websiteService.getWebsites();
-      const websites = response.data.data; // 修复：API返回的是 { success: true, data: websites }
+      const websites = response.data?.data || [];
       
       set({ websites, isLoading: false });
     } catch (error: any) {
@@ -50,7 +50,7 @@ export const useWebsiteStore = create<WebsiteState>((set, get) => ({
       set({ isCreating: true });
       
       const response = await websiteService.createWebsite(data);
-      const newWebsite = response.data.data;
+      const newWebsite = response.data?.data;
       
       set((state) => ({
         websites: [newWebsite, ...state.websites],
@@ -73,7 +73,7 @@ export const useWebsiteStore = create<WebsiteState>((set, get) => ({
       set({ isUpdating: true });
       
       const response = await websiteService.updateWebsite(id, data);
-      const updatedWebsite = response.data.data;
+      const updatedWebsite = response.data?.data;
       
       set((state) => ({
         websites: state.websites.map(site => 
@@ -132,7 +132,7 @@ export const useWebsiteStore = create<WebsiteState>((set, get) => ({
       
       // Fetch from API
       const response = await websiteService.getWebsite(id);
-      const website = response.data.data;
+      const website = response.data?.data;
       
       set({ currentWebsite: website });
       
@@ -156,7 +156,7 @@ export const useWebsiteStore = create<WebsiteState>((set, get) => ({
       set({ isCreating: true });
       
       const response = await websiteService.duplicateWebsite(id);
-      const newWebsite = response.data.data;
+      const newWebsite = response.data?.data;
       
       set((state) => ({
         websites: [newWebsite, ...state.websites],

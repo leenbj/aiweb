@@ -2,7 +2,7 @@ import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import type { APIResponse, Website, User, AIConversation, UserSettings, TokenUsage, DailyUsage } from '@/shared/types';
 
 // Base API configuration
-const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:3001/api');
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || ((import.meta as any).env?.DEV ? '/api' : 'http://localhost:3001/api');
 
 class APIClient {
   private client: AxiosInstance;
@@ -151,17 +151,17 @@ export const aiService = {
 
   // 流式网站生成
   generateWebsiteStream: async (
-    prompt: string, 
-    websiteId?: string,
+    prompt: string,
     onChunk: (chunk: { type: string; content?: string; fullHtml?: string; reply?: string }) => void,
     onComplete: (result: { website: Website; content: string; reply: string }) => void,
     onError: (error: string) => void,
+    websiteId?: string,
     abortController?: AbortController
   ) => {
     // 统一token获取逻辑
     const zustandAuth = JSON.parse(localStorage.getItem('auth-storage') || '{}');
     const token = zustandAuth?.state?.token || localStorage.getItem('auth-token');
-    const baseURL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:3001/api');
+    const baseURL = (import.meta as any).env?.VITE_API_URL || ((import.meta as any).env?.DEV ? '/api' : 'http://localhost:3001/api');
     
     try {
       const response = await fetch(`${baseURL}/ai/generate-stream`, {
@@ -237,7 +237,7 @@ export const aiService = {
     // 统一token获取逻辑
     const zustandAuth = JSON.parse(localStorage.getItem('auth-storage') || '{}');
     const token = zustandAuth?.state?.token || localStorage.getItem('auth-token');
-    const baseURL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:3001/api');
+    const baseURL = (import.meta as any).env?.VITE_API_URL || ((import.meta as any).env?.DEV ? '/api' : 'http://localhost:3001/api');
     console.log('🔗 使用API地址:', `${baseURL}/ai/edit-stream`);
     console.log('📦 Token来源检查:', { hasZustand: !!zustandAuth?.state, hasLocalToken: !!localStorage.getItem('auth-token') });
     
@@ -321,10 +321,10 @@ export const aiService = {
     const token = zustandAuth?.state?.token || localStorage.getItem('auth-token');
     console.log('🔑 获取到的token:', token ? token.substring(0, 20) + '...' : 'null');
     console.log('📦 Zustand状态检查:', { hasZustand: !!zustandAuth?.state, hasLocalToken: !!localStorage.getItem('auth-token') });
-    const baseURL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:3001/api');
+    const baseURL = (import.meta as any).env?.VITE_API_URL || ((import.meta as any).env?.DEV ? '/api' : 'http://localhost:3001/api');
     const fullApiUrl = `${baseURL}/ai/chat-stream`;
     console.log('🔗 使用chat-stream API地址:', fullApiUrl);
-    console.log('🌍 环境变量检查:', { DEV: import.meta.env.DEV, VITE_API_URL: import.meta.env.VITE_API_URL });
+    console.log('🌍 环境变量检查:', { DEV: (import.meta as any).env?.DEV, VITE_API_URL: (import.meta as any).env?.VITE_API_URL });
     
     try {
       const response = await fetch(fullApiUrl, {
@@ -378,7 +378,6 @@ export const aiService = {
       const decoder = new TextDecoder();
       let fullResponse = '';
       let hasReceivedData = false;
-      let lastHeartbeat = Date.now();
 
       // 设置连接超时
       const connectionTimeout = setTimeout(() => {
@@ -407,7 +406,8 @@ export const aiService = {
           const chunk = decoder.decode(value);
           console.log('📥 收到数据块:', chunk.length > 100 ? chunk.substring(0, 100) + '...' : chunk);
           const lines = chunk.split('\n').filter(line => line.trim());
-          lastHeartbeat = Date.now();
+          // 更新最后心跳时间
+          const lastHeartbeat = Date.now();
 
           for (const line of lines) {
             if (line.startsWith('data: ')) {
@@ -418,7 +418,7 @@ export const aiService = {
                 
                 // 处理心跳事件
                 if (eventData.event === 'heartbeat') {
-                  lastHeartbeat = Date.now();
+                  console.log('💓 收到心跳信号');
                   continue;
                 }
                 

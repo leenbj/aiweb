@@ -14,7 +14,7 @@ import {
   Pie,
   Cell
 } from 'recharts';
-import { format, subDays, parseISO } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import { Calendar, TrendingUp, DollarSign, Activity, Clock, Filter } from 'lucide-react';
 import { tokenService } from '../services/api';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
@@ -71,7 +71,12 @@ export const TokenStats: React.FC = () => {
   const loadOverview = async () => {
     try {
       const response = await tokenService.getOverview();
-      setOverview(response.data.data); // 修复：API响应包装在data.data中
+      setOverview(response.data?.data || {
+        today: { tokensUsed: 0, costRmb: 0, operations: 0 },
+        yesterday: { tokensUsed: 0, costRmb: 0 },
+        month: { tokensUsed: 0, costRmb: 0 },
+        providers: [],
+      });
     } catch (error) {
       console.error('Failed to load token overview:', error);
       // 设置默认值避免页面空白
@@ -88,7 +93,7 @@ export const TokenStats: React.FC = () => {
   const loadTrendData = async () => {
     try {
       const response = await tokenService.getTrend();
-      setTrendData(response.data.data.trend); // 修复：API响应包装在data.data中
+      setTrendData(response.data?.data?.trend || []);
     } catch (error) {
       console.error('Failed to load trend data:', error);
       setTrendData([]); // 设置默认值
@@ -102,7 +107,7 @@ export const TokenStats: React.FC = () => {
         date,
         provider: selectedProvider || undefined,
       });
-      setDailyData(response.data.data); // 修复：API响应包装在data.data中
+      setDailyData(response.data?.data || []);
     } catch (error) {
       console.error('Failed to load daily data:', error);
       setDailyData(null); // 设置默认值
@@ -118,7 +123,7 @@ export const TokenStats: React.FC = () => {
         provider: selectedProvider || undefined,
         groupBy: viewMode,
       });
-      setTrendData(response.data.data.usage); // 修复：API响应包装在data.data中
+      setTrendData(response.data?.data?.usage || []);
     } catch (error) {
       console.error('Failed to load range data:', error);
       setTrendData([]); // 设置默认值
@@ -399,7 +404,7 @@ export const TokenStats: React.FC = () => {
                   cx="50%"
                   cy="50%"
                   outerRadius={80}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
+                  label={({ name, percent }) => `${name} ${(percent ?? 0 * 100).toFixed(1)}%`}
                 >
                   {formatProviderData().map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />

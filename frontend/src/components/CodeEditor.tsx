@@ -103,7 +103,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     // Add custom HTML snippets and autocomplete
     if (language === 'html') {
       monaco.languages.registerCompletionItemProvider('html', {
-        provideCompletionItems: (model, position) => {
+        provideCompletionItems: (_model, position) => {
           const suggestions = [
             {
               label: 'html5',
@@ -264,7 +264,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     suggestOnTriggerCharacters: true,
     acceptSuggestionOnEnter: 'on',
     tabCompletion: 'on',
-    wordBasedSuggestions: 'allDocuments',
+    wordBasedSuggestions: true,
     formatOnPaste: true,
     formatOnType: true,
   };

@@ -41,7 +41,7 @@ export const useAuthStore = create<AuthState>()(
           set({ isLoading: true });
           
           const response = await authService.login({ email, password });
-          const { user, token } = response.data.data;
+          const { user, token } = response.data?.data || {};
           
           set({
             user,
@@ -67,7 +67,7 @@ export const useAuthStore = create<AuthState>()(
           set({ isLoading: true });
           
           const response = await authService.register({ name, email, password });
-          const { user, token } = response.data.data;
+          const { user, token } = response.data?.data || {};
           
           set({
             user,
@@ -79,7 +79,7 @@ export const useAuthStore = create<AuthState>()(
           // Set auth header for future requests
           authService.setAuthHeader(token);
           
-          toast.success(`欢迎，${user.name}！您的账户已创建。`);
+          toast.success(`欢迎，${user?.name || '用户'}！您的账户已创建。`);
         } catch (error: any) {
           set({ isLoading: false });
           const message = error.response?.data?.error || '注册失败';
@@ -115,8 +115,12 @@ export const useAuthStore = create<AuthState>()(
           authService.setAuthHeader(token);
           
           const response = await authService.getMe();
-          const user = response.data.data;
-          
+          const userData = response.data?.data;
+          const user = userData ? {
+            ...userData,
+            role: (userData as any).role || 'user' // 确保role属性存在
+          } : null;
+
           set({
             user,
             isAuthenticated: true,
@@ -138,9 +142,13 @@ export const useAuthStore = create<AuthState>()(
       updateProfile: async (data: { name?: string; email?: string }) => {
         try {
           const response = await authService.updateProfile(data);
-          const updatedUser = response.data;
-          
-          set({ user: updatedUser });
+          const updatedUser = response.data?.data || response.data;
+          const user = updatedUser ? {
+            ...updatedUser,
+            role: (updatedUser as any).role || 'user'
+          } : null;
+
+          set({ user });
           toast.success('个人资料更新成功');
         } catch (error: any) {
           const message = error.response?.data?.error || '更新个人资料失败';

@@ -1,14 +1,13 @@
 import React from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Code, 
-  Settings, 
-  Server, 
-  User, 
+import {
+  LayoutDashboard,
+  Code,
+  Settings,
+  Server,
+  User,
   LogOut,
   Sparkles,
-  Globe,
   BarChart3
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';

@@ -45,13 +45,10 @@ export const AIChat: React.FC<AIChatProps> = ({
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
-  const [generationProgress, setGenerationProgress] = useState('');
-  const [showProgress, setShowProgress] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [totalSteps, setTotalSteps] = useState(0);
+
   const [conversationStage, setConversationStage] = useState<ConversationStage>('initial');
   const [lastChunkTime, setLastChunkTime] = useState(0);
-  const [streamingContent, setStreamingContent] = useState<string>('');
+
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [websiteRequirements] = useState<{
     type?: string;
@@ -73,16 +70,7 @@ export const AIChat: React.FC<AIChatProps> = ({
   // 清理了批量更新相关的引用，使用直接同步更新确保真正的实时显示
   
   // 测试AI连接状态 - 仅在需要时调用
-  const testAIConnection = async () => {
-    try {
-      setConnectionStatus('testing');
-      const response = await aiService.testConnection({ provider: 'auto' });
-      setConnectionStatus(response.data.data?.connected ? 'connected' : 'disconnected');
-    } catch (error) {
-      console.error('连接测试失败:', error);
-      setConnectionStatus('disconnected');
-    }
-  };
+
 
   // 组件卸载时清理资源
   useEffect(() => {
@@ -182,7 +170,6 @@ export const AIChat: React.FC<AIChatProps> = ({
       // 使用流式API生成网站
       await aiService.generateWebsiteStream(
         detailedPrompt,
-        websiteId,
         // onChunk回调
         (chunk) => {
           if (isAbortedGeneration) {
@@ -282,6 +269,7 @@ export const AIChat: React.FC<AIChatProps> = ({
           setCurrentAbortController(null);
           setIsInterruptable(false);
         },
+        websiteId,
         abortController
       );
       

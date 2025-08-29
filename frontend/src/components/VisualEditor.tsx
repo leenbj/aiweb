@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Eye, Code, Smartphone, Tablet, Monitor, Save, Download, Settings, Undo, Redo } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Eye, Code, Smartphone, Tablet, Monitor, Save, Download, Undo, Redo } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { CodeEditor } from './CodeEditor';
 import { WebsitePreview } from './WebsitePreview';

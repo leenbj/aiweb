@@ -497,6 +497,8 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
         }
       } finally {
         reader.releaseLock();
+        // 通知父组件生成结束
+        onGenerationEnd?.();
       }
 
     } catch (error: any) {
@@ -739,6 +741,8 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
         }
       } finally {
         reader.releaseLock();
+        // 通知父组件生成结束
+        onGenerationEnd?.();
       }
 
     } catch (error: any) {
@@ -877,6 +881,8 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
         }
       } finally {
         reader.releaseLock();
+        // 通知父组件生成结束
+        onGenerationEnd?.();
       }
 
     } catch (error: any) {

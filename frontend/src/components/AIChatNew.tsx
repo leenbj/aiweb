@@ -25,7 +25,7 @@ export default function AIChatNew({ onCodeStreamUpdate }: AIChatProps) {
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [forceRenderKey, setForceRenderKey] = useState(0); // 强制重新渲染的key
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { currentWebsite } = useWebsiteStore();
+  const { } = useWebsiteStore();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

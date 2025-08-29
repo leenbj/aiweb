@@ -34,7 +34,7 @@ export const useWebsiteStore = create<WebsiteState & WebsiteActions>((set, get) 
       set({ loading: true, error: null })
       
       const response = await api.get('/websites')
-      const { websites } = response.data
+      const { websites } = response.data?.data || response.data || { websites: [] }
       
       set({ websites, loading: false })
     } catch (error: any) {
@@ -50,7 +50,7 @@ export const useWebsiteStore = create<WebsiteState & WebsiteActions>((set, get) 
       set({ loading: true, error: null })
       
       const response = await api.get(`/websites/${id}`)
-      const { website } = response.data
+      const { website } = response.data?.data || response.data || {}
       
       set({ currentWebsite: website, loading: false })
     } catch (error: any) {
@@ -66,7 +66,7 @@ export const useWebsiteStore = create<WebsiteState & WebsiteActions>((set, get) 
       set({ loading: true, error: null })
       
       const response = await api.post('/websites', data)
-      const { website } = response.data
+      const { website } = response.data?.data || response.data || {}
       
       const { websites } = get()
       set({ 
@@ -87,7 +87,7 @@ export const useWebsiteStore = create<WebsiteState & WebsiteActions>((set, get) 
   updateWebsite: async (id: string, data: Partial<Website>) => {
     try {
       const response = await api.put(`/websites/${id}`, data)
-      const { website } = response.data
+      const { website } = response.data?.data || response.data || {}
       
       const { websites, currentWebsite } = get()
       
@@ -128,7 +128,7 @@ export const useWebsiteStore = create<WebsiteState & WebsiteActions>((set, get) 
       set({ loading: true, error: null })
       
       const response = await api.post(`/deployments/${id}/deploy`, config)
-      const { deployment } = response.data
+      const { deployment } = response.data?.data || response.data || {}
       
       // Update deployment status
       const { deploymentStatus } = get()
