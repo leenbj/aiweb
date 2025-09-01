@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Button } from './ui/button';
+import { Button } from './ui/Button';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
@@ -85,11 +85,11 @@ export function DashboardSidebar({ isCollapsed, onToggle }: DashboardSidebarProp
   const getPlanBadge = (plan: string) => {
     switch (plan) {
       case 'pro':
-        return <Badge className="bg-gradient-to-r from-purple-500 to-blue-500 text-white">Pro</Badge>;
+        return <Badge className="bg-black text-white">Pro</Badge>;
       case 'enterprise':
-        return <Badge className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white">Enterprise</Badge>;
+        return <Badge className="bg-gray-800 text-white">Enterprise</Badge>;
       default:
-        return <Badge variant="secondary">Free</Badge>;
+        return <Badge className="bg-gray-200 text-gray-700 border border-gray-300">Free</Badge>;
     }
   };
 
@@ -196,7 +196,7 @@ export function DashboardSidebar({ isCollapsed, onToggle }: DashboardSidebarProp
               transition={{ duration: 0.2 }}
               className="flex justify-center"
             >
-              <div className="w-8 h-8 bg-gradient-to-br from-primary to-primary/60 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
                 <Sparkles className="w-5 h-5 text-white" />
               </div>
             </motion.div>
@@ -209,23 +209,24 @@ export function DashboardSidebar({ isCollapsed, onToggle }: DashboardSidebarProp
               transition={{ duration: 0.2 }}
             >
               <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-gradient-to-br from-primary to-primary/60 rounded-lg flex items-center justify-center">
+                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
                   <Sparkles className="w-5 h-5 text-white" />
                 </div>
                 <span className="font-bold text-lg">AI 生成器</span>
               </div>
 
               {/* User Info */}
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                <Avatar 
-                  variant={user?.plan === 'pro' || user?.plan === 'enterprise' ? 'premium' : 'user'}
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-gray-100 border border-gray-200">
+                <Avatar
+                  variant="user"
                   size="lg"
                   showStatus={true}
                   status="online"
-                  className="w-10 h-10"
+                  className="w-10 h-10 bg-black"
+                  style={{ backgroundColor: '#000000' }}
                 >
-                  <AvatarFallback variant={user?.plan === 'pro' || user?.plan === 'enterprise' ? 'premium' : 'user'}>
-                    {user?.name?.charAt(0).toUpperCase()}
+                  <AvatarFallback variant="user" style={{ backgroundColor: '#000000', color: '#ffffff' }}>
+                    {user?.email?.charAt(0).toUpperCase() || 'U'}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
@@ -244,15 +245,16 @@ export function DashboardSidebar({ isCollapsed, onToggle }: DashboardSidebarProp
             <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
                 <div className="mt-4 flex justify-center cursor-pointer">
-                  <Avatar 
-                    variant={user?.plan === 'pro' || user?.plan === 'enterprise' ? 'premium' : 'user'}
+                  <Avatar
+                    variant="user"
                     size="md"
                     showStatus={true}
                     status="online"
-                    className="w-8 h-8"
+                    className="w-8 h-8 bg-black"
+                    style={{ backgroundColor: '#000000' }}
                   >
-                    <AvatarFallback variant={user?.plan === 'pro' || user?.plan === 'enterprise' ? 'premium' : 'user'}>
-                      {user?.name?.charAt(0).toUpperCase()}
+                    <AvatarFallback variant="user" style={{ backgroundColor: '#000000', color: '#ffffff' }}>
+                      {user?.email?.charAt(0).toUpperCase() || 'U'}
                     </AvatarFallback>
                   </Avatar>
                 </div>

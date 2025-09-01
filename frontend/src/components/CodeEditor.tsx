@@ -2,6 +2,86 @@ import React, { useRef, useEffect, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 
+// 传统代码配色主题配置
+const traditionalTheme: monaco.editor.IStandaloneThemeData = {
+  base: 'vs' as monaco.editor.BuiltinTheme,
+  inherit: true,
+  rules: [
+    // 关键字 - 深蓝色
+    { token: 'keyword', foreground: '0000FF', fontStyle: 'bold' },
+    { token: 'keyword.control', foreground: '0000FF', fontStyle: 'bold' },
+    { token: 'keyword.operator', foreground: '0000FF', fontStyle: 'bold' },
+
+    // 类型和类名 - 深绿色
+    { token: 'type', foreground: '008000', fontStyle: 'bold' },
+    { token: 'type.identifier', foreground: '008000', fontStyle: 'bold' },
+    { token: 'class', foreground: '008000', fontStyle: 'bold' },
+
+    // 函数名 - 深紫色
+    { token: 'function', foreground: '800080', fontStyle: 'bold' },
+    { token: 'method', foreground: '800080', fontStyle: 'bold' },
+
+    // 变量名 - 黑色
+    { token: 'variable', foreground: '000000' },
+    { token: 'variable.name', foreground: '000000' },
+    { token: 'identifier', foreground: '000000' },
+
+    // 字符串 - 褐色
+    { token: 'string', foreground: '8B4513' },
+    { token: 'string.quote', foreground: '8B4513' },
+
+    // 数字 - 深红色
+    { token: 'number', foreground: 'FF0000' },
+    { token: 'number.hex', foreground: 'FF0000' },
+
+    // 注释 - 绿色
+    { token: 'comment', foreground: '008000', fontStyle: 'italic' },
+
+    // 运算符 - 黑色
+    { token: 'operator', foreground: '000000' },
+    { token: 'delimiter', foreground: '000000' },
+
+    // 括号 - 深灰色
+    { token: 'delimiter.parenthesis', foreground: '666666' },
+    { token: 'delimiter.bracket', foreground: '666666' },
+    { token: 'delimiter.curly', foreground: '666666' },
+
+    // HTML标签 - 深蓝色
+    { token: 'tag', foreground: '000080', fontStyle: 'bold' },
+    { token: 'tag.html', foreground: '000080', fontStyle: 'bold' },
+    { token: 'attribute.name', foreground: 'FF6600' },
+    { token: 'attribute.value', foreground: '008000' },
+
+    // CSS属性 - 深蓝色
+    { token: 'attribute.name.css', foreground: '0000FF' },
+    { token: 'attribute.value.css', foreground: '800080' },
+
+    // 错误和警告
+    { token: 'invalid', foreground: 'FF0000', fontStyle: 'bold underline' },
+    { token: 'error-token', foreground: 'FF0000', fontStyle: 'bold' },
+    { token: 'warning-token', foreground: 'FFA500', fontStyle: 'bold' },
+
+    // 转义字符 - 深红色
+    { token: 'string.escape', foreground: 'FF0000' },
+
+    // 预处理器 - 深紫色
+    { token: 'predefined', foreground: '800080' },
+    { token: 'namespace', foreground: '800080' },
+  ],
+  colors: {
+    'editor.background': '#FFFFFF',
+    'editor.foreground': '#000000',
+    'editor.lineHighlightBackground': '#F0F0F0',
+    'editor.selectionBackground': '#ADD6FF',
+    'editor.inactiveSelectionBackground': '#E5EBF1',
+    'editorCursor.foreground': '#000000',
+    'editorWhitespace.foreground': '#CCCCCC',
+    'editorIndentGuide.background': '#E5E5E5',
+    'editorLineNumber.foreground': '#999999',
+    'editorLineNumber.activeForeground': '#666666',
+  }
+};
+
 interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
@@ -20,7 +100,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   onChange,
   language = 'html',
   height = '100%',
-  theme = 'vs-dark',
+  theme = 'traditional',
   readOnly = false,
   minimap = true,
   lineNumbers = 'on',
@@ -81,7 +161,13 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
 
   const handleEditorDidMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
-    
+
+    // 注册传统主题
+    monaco.editor.defineTheme('traditional', traditionalTheme);
+
+    // 设置主题
+    monaco.editor.setTheme(theme);
+
     // Configure editor
     editor.updateOptions({
       fontSize: 14,
@@ -282,11 +368,11 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         loading={
           <div className="flex items-center justify-center h-full">
             <div className="loading-spinner mr-2" />
-            <span>Loading editor...</span>
+            <span>正在加载传统代码编辑器...</span>
           </div>
         }
       />
-      
+
       {/* 打字机效果状态指示器 */}
       {typewriterMode && isTyping && (
         <div className="absolute top-2 right-2 bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs flex items-center space-x-1 z-10">
@@ -294,7 +380,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
           <span>AI实时生成中...</span>
         </div>
       )}
-      
+
       {/* 打字光标效果 */}
       {typewriterMode && isTyping && (
         <style dangerouslySetInnerHTML={{
@@ -310,6 +396,13 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
             }
           `
         }} />
+      )}
+
+      {/* 传统主题提示 */}
+      {theme === 'traditional' && (
+        <div className="absolute bottom-2 left-2 bg-green-100 text-green-800 px-2 py-1 rounded text-xs z-10">
+          <span>已启用传统代码配色</span>
+        </div>
       )}
     </div>
   );

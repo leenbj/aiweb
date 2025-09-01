@@ -1,5 +1,5 @@
 import React from 'react';
-import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
+import { Avatar, AvatarFallback } from './ui/avatar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { User, Bot, Crown, Sparkles } from 'lucide-react';
@@ -70,10 +70,10 @@ export function AvatarShowcase() {
             
             <div className="text-center space-y-2">
               <Avatar variant="user" size="lg">
-                <AvatarFallback variant="user">用</AvatarFallback>
+                <AvatarFallback variant="user">d</AvatarFallback>
               </Avatar>
               <div>
-                <div className="font-medium">用户</div>
+                <div className="font-medium">用户（邮箱首字母）</div>
                 <Badge variant="outline">user</Badge>
               </div>
             </div>
@@ -115,7 +115,7 @@ export function AvatarShowcase() {
           <div className="flex items-center space-x-6">
             <div className="text-center space-y-2">
               <Avatar variant="user" size="lg" showStatus={true} status="online">
-                <AvatarFallback variant="user">在</AvatarFallback>
+                <AvatarFallback variant="user">d</AvatarFallback>
               </Avatar>
               <div>
                 <div className="font-medium">在线</div>
@@ -125,17 +125,17 @@ export function AvatarShowcase() {
             
             <div className="text-center space-y-2">
               <Avatar variant="user" size="lg" showStatus={true} status="busy">
-                <AvatarFallback variant="user">忙</AvatarFallback>
+                <AvatarFallback variant="user">d</AvatarFallback>
               </Avatar>
               <div>
                 <div className="font-medium">忙碌</div>
                 <Badge className="bg-gray-100 text-gray-700">busy</Badge>
               </div>
             </div>
-            
+
             <div className="text-center space-y-2">
               <Avatar variant="user" size="lg" showStatus={true} status="offline">
-                <AvatarFallback variant="user">离</AvatarFallback>
+                <AvatarFallback variant="user">d</AvatarFallback>
               </Avatar>
               <div>
                 <div className="font-medium">离线</div>
@@ -157,7 +157,7 @@ export function AvatarShowcase() {
             {/* User Profile */}
             <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
               <Avatar variant="premium" size="lg" showStatus={true} status="online">
-                <AvatarFallback variant="premium">李</AvatarFallback>
+                <AvatarFallback variant="premium">l</AvatarFallback>
               </Avatar>
               <div className="flex-1">
                 <div className="font-medium">李明 (Pro用户)</div>
@@ -185,7 +185,7 @@ export function AvatarShowcase() {
             <div className="flex items-center justify-between p-3 border rounded-lg">
               <div className="flex items-center gap-3">
                 <Avatar variant="user" size="md" showStatus={true} status="online">
-                  <AvatarFallback variant="user">王</AvatarFallback>
+                  <AvatarFallback variant="user">w</AvatarFallback>
                 </Avatar>
                 <div>
                   <div className="font-medium">王小明</div>

@@ -28,6 +28,7 @@
     "node-cron": "^3.0.3",
     "openai": "^4.20.1",
     "prisma": "^5.7.1",
+    "punycode": "^2.3.1",
     "rate-limiter-flexible": "^7.2.0",
     "sharp": "^0.33.1",
     "uuid": "^9.0.1",

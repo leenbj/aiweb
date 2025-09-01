@@ -12,10 +12,14 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
+    "typeRoots": [
+      "./src/types",
+      "./node_modules/@types"
+    ],
     "paths": {
       "@/*": ["src/*"],
       "@/shared/*": ["../shared/*"],
@@ -23,5 +27,10 @@
     }
   },
   "include": ["src", "../shared"],
+  "exclude": [
+    "src/components/AIChat.tsx",
+    "src/components/AIChatNew(EthandeMacBook-Air-2.local的冲突副本1_2025-09-01 08-51-52).tsx",
+    "src/services/api(EthandeMacBook-Air-2.local的冲突副本1_2025-09-01 08-51-52).ts"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

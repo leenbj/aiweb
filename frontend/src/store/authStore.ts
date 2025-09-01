@@ -2,14 +2,10 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { authService } from '../services/api';
 import { toast } from 'react-hot-toast';
+import type { User as SharedUser } from '@/shared/types';
 
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  createdAt: string;
-  updatedAt: string;
+interface User extends SharedUser {
+  plan?: 'free' | 'pro' | 'enterprise';
 }
 
 interface AuthState {
@@ -41,8 +37,14 @@ export const useAuthStore = create<AuthState>()(
           set({ isLoading: true });
           
           const response = await authService.login({ email, password });
-          const { user, token } = response.data?.data || {};
-          
+          const { user: userData, token } = (response.data?.data || {}) as { user?: SharedUser; token?: string };
+          if (!userData || !token) throw new Error('登录响应无效');
+          const user: User = {
+            ...userData,
+            role: (userData as any).role || 'user',
+            plan: (userData as any).plan || 'free'
+          };
+
           set({
             user,
             token,
@@ -67,7 +69,13 @@ export const useAuthStore = create<AuthState>()(
           set({ isLoading: true });
           
           const response = await authService.register({ name, email, password });
-          const { user, token } = response.data?.data || {};
+          const { user: userData, token } = (response.data?.data || {}) as { user?: SharedUser; token?: string };
+          if (!userData || !token) throw new Error('注册响应无效');
+          const user: User = {
+            ...userData,
+            role: (userData as any).role || 'user',
+            plan: (userData as any).plan || 'free'
+          };
           
           set({
             user,
@@ -115,10 +123,11 @@ export const useAuthStore = create<AuthState>()(
           authService.setAuthHeader(token);
           
           const response = await authService.getMe();
-          const userData = response.data?.data;
-          const user = userData ? {
+          const userData = response.data?.data as SharedUser | undefined;
+          const user: User | null = userData ? {
             ...userData,
-            role: (userData as any).role || 'user' // 确保role属性存在
+            role: (userData as any).role || 'user',
+            plan: (userData as any).plan || 'free'
           } : null;
 
           set({
@@ -142,10 +151,11 @@ export const useAuthStore = create<AuthState>()(
       updateProfile: async (data: { name?: string; email?: string }) => {
         try {
           const response = await authService.updateProfile(data);
-          const updatedUser = response.data?.data || response.data;
-          const user = updatedUser ? {
+          const updatedUser = (response.data?.data || response.data) as SharedUser | undefined;
+          const user: User | null = updatedUser ? {
             ...updatedUser,
-            role: (updatedUser as any).role || 'user'
+            role: (updatedUser as any).role || 'user',
+            plan: (updatedUser as any).plan || 'free'
           } : null;
 
           set({ user });

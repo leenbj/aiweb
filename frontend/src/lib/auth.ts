@@ -1,16 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { authService } from '../services/api';
+import type { User as SharedUser } from '@/shared/types';
 
-export interface User {
-  id: string;
-  email: string;
-  name: string;
-  avatar?: string;
+export interface User extends SharedUser {
   plan: 'free' | 'pro' | 'enterprise';
-  role: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
 interface AuthState {
@@ -41,14 +35,15 @@ export const useAuth = create<AuthState>()(
           set({ isLoading: true });
           
           const response = await authService.login({ email, password });
-          const { user: userData, token } = response.data?.data || {};
+          const { user: userData, token } = response.data?.data || {} as { user?: SharedUser; token?: string };
+          if (!userData || !token) throw new Error('登录响应无效');
           
           // Map backend user to frontend user format
           const user: User = {
-            id: userData.id,
-            email: userData.email,
-            name: userData.name,
-            role: userData.role || 'user',
+            id: String(userData.id),
+            email: String(userData.email),
+            name: String(userData.name),
+            role: (userData as any).role || 'user',
             plan: 'free', // Default to free plan
             createdAt: userData.createdAt,
             updatedAt: userData.updatedAt,
@@ -77,14 +72,15 @@ export const useAuth = create<AuthState>()(
           set({ isLoading: true });
           
           const response = await authService.register({ name, email, password });
-          const { user: userData, token } = response.data?.data || {};
+          const { user: userData, token } = response.data?.data || {} as { user?: SharedUser; token?: string };
+          if (!userData || !token) throw new Error('注册响应无效');
           
           // Map backend user to frontend user format
           const user: User = {
-            id: userData.id,
-            email: userData.email,
-            name: userData.name,
-            role: userData.role || 'user',
+            id: String(userData.id),
+            email: String(userData.email),
+            name: String(userData.name),
+            role: (userData as any).role || 'user',
             plan: 'free', // Default to free plan
             createdAt: userData.createdAt,
             updatedAt: userData.updatedAt,
@@ -133,14 +129,14 @@ export const useAuth = create<AuthState>()(
           authService.setAuthHeader(token);
           
           const response = await authService.getMe();
-          const userData = response.data?.data;
+          const userData = response.data?.data as SharedUser | undefined;
           
           if (userData) {
             const user: User = {
-              id: userData.id,
-              email: userData.email,
-              name: userData.name,
-              role: userData.role || 'user',
+              id: String(userData.id),
+              email: String(userData.email),
+              name: String(userData.name),
+              role: (userData as any).role || 'user',
               plan: 'free', // Default to free plan
               createdAt: userData.createdAt,
               updatedAt: userData.updatedAt,

@@ -1,5 +1,4 @@
 import { useAuthStore } from '@/store/authStore'
-import { useWebsiteStore } from '@/store/websiteStore'
 import toast from 'react-hot-toast'
 
 class WebSocketService {
@@ -110,21 +109,8 @@ class WebSocketService {
   }
 
   private handleDeploymentStatus(data: any) {
-    const { websiteId, status, message, url } = data
-    const { updateDeploymentStatus } = useWebsiteStore.getState()
-    
-    // Update deployment status in store
-    updateDeploymentStatus(websiteId, {
-      websiteId,
-      status: status.toLowerCase(),
-      message,
-      timestamp: new Date(),
-      nginxConfigured: data.nginxConfigured || false,
-      sslConfigured: data.sslConfigured || false,
-      dnsResolved: data.dnsResolved || false
-    })
-    
-    // Show toast notification
+    const { status, message, url } = data
+    // Show toast notification only
     switch (status) {
       case 'SUCCESS':
         toast.success(`Website deployed successfully! ${url ? `Visit: ${url}` : ''}`)

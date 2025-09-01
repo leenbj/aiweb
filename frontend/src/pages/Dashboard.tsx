@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { useWebsiteStore } from '../store/websiteStore';
 import { useAuthStore } from '../store/authStore';
 import { LoadingSpinner } from '../components/LoadingSpinner';
+import { WebsiteThumbnail } from '../components/WebsiteThumbnail';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 
@@ -38,11 +39,14 @@ export const Dashboard: React.FC = () => {
   }, [fetchWebsites]);
 
   const handleCreateWebsite = () => {
-    navigate('/editor');
+    // 路由使用命名路由，URL保持为/editor
+    navigate('editor');
   };
 
   const handleEditWebsite = (id: string) => {
-    navigate(`/editor/${id}`);
+    // 更新URL以包含ID，同时更新路由状态为editor
+    window.history.pushState({}, '', `/editor/${id}`);
+    navigate('editor');
   };
 
   const handleDeleteWebsite = async (id: string) => {
@@ -58,7 +62,8 @@ export const Dashboard: React.FC = () => {
   const handleDuplicateWebsite = async (id: string) => {
     try {
       const duplicated = await duplicateWebsite(id);
-      navigate(`/editor/${duplicated.id}`);
+      window.history.pushState({}, '', `/editor/${duplicated.id}`);
+      navigate('editor');
     } catch (error) {
       // Error handling is done in the store
     }
@@ -153,10 +158,14 @@ export const Dashboard: React.FC = () => {
                   className="card hover:shadow-md transition-shadow"
                 >
                   {/* Website Preview */}
-                  <div className="h-48 bg-gradient-to-br from-gray-100 to-gray-200 rounded-t-lg relative overflow-hidden">
-                    <div className="absolute inset-0 bg-gray-50 flex items-center justify-center">
-                      <Globe className="h-12 w-12 text-gray-400" />
-                    </div>
+                  <div className="h-48 rounded-t-lg relative overflow-hidden">
+                    <WebsiteThumbnail
+                      websiteId={website.id}
+                      domain={website.domain}
+                      title={website.title}
+                      className="h-full rounded-t-lg"
+                      showRefreshButton={true}
+                    />
                     {/* Status Badge */}
                     <div className="absolute top-3 left-3">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(website.status)}`}>

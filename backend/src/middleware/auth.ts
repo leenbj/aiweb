@@ -48,7 +48,7 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
         logger.debug('JWT token已过期');
         return res.status(401).json({ success: false, error: 'Token expired.' });
       } else if (jwtError.name === 'JsonWebTokenError') {
-        logger.warn('JWT格式错误:', jwtError.message, { tokenPrefix: token.substring(0, 20) });
+        logger.warn('JWT格式错误: ' + jwtError.message, { tokenPrefix: token.substring(0, 20) });
         return res.status(401).json({ success: false, error: 'Invalid token format.' });
       } else {
         logger.error('JWT验证异常:', jwtError);

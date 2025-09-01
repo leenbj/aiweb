@@ -20,10 +20,10 @@ const avatarSizes = {
 };
 
 const avatarVariants = {
-  default: "bg-muted",
-  user: "bg-gradient-to-br from-primary to-primary/80 text-primary-foreground",
-  ai: "bg-gradient-to-br from-gray-700 to-gray-900 text-white",
-  premium: "bg-gradient-to-br from-primary to-gray-800 text-primary-foreground"
+  default: "bg-gray-100 text-gray-600",
+  user: "bg-black text-white",
+  ai: "bg-gray-800 text-white",
+  premium: "bg-black text-white"
 };
 
 const statusColors = {
@@ -62,18 +62,7 @@ function Avatar({
   );
 }
 
-function AvatarImage({
-  className,
-  ...props
-}: React.ComponentProps<typeof AvatarPrimitive.Image>) {
-  return (
-    <AvatarPrimitive.Image
-      data-slot="avatar-image"
-      className={cn("aspect-square size-full object-cover", className)}
-      {...props}
-    />
-  );
-}
+
 
 interface AvatarFallbackProps extends React.ComponentProps<typeof AvatarPrimitive.Fallback> {
   variant?: 'default' | 'user' | 'ai' | 'premium';
@@ -113,4 +102,4 @@ function AvatarFallback({
   );
 }
 
-export { Avatar, AvatarImage, AvatarFallback };
+export { Avatar, AvatarFallback };

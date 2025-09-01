@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Button } from './ui/button';
+import { Button } from './ui/Button';
 import { Textarea } from './ui/textarea';
+import { CodeEditor } from './CodeEditor';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { LoadingSpinner } from './LoadingSpinner';
 import { useWebsiteStore } from '../store/websiteStore';
 import { useRouter } from '../lib/router';
+import { useAuth } from '../lib/auth';
 import { toast } from 'react-hot-toast';
 import { Website } from '@/shared/types';
 import {
@@ -43,6 +45,7 @@ export function AIEditorFull() {
   const id = pathParts[2]; // /editor/[id] format
   
   const { navigate } = useRouter();
+  const { user } = useAuth();
   const [content, setContent] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<{progress: number, stage: string}>({progress: 0, stage: ''});
@@ -249,8 +252,7 @@ export function AIEditorFull() {
     <div className="h-full flex bg-background">
       {/* Left Panel - Chat */}
       <div className="w-1/3 border-r flex flex-col">
-        <div className="border-b bg-background/50 backdrop-blur-sm">
-          <div className="p-4">
+        <div className="border-b bg-background/50 backdrop-blur-sm p-4">
             <div className="flex items-center gap-3">
               <Avatar variant="ai" size="md">
                 <AvatarFallback variant="ai">
@@ -262,7 +264,6 @@ export function AIEditorFull() {
                 <p className="text-sm text-muted-foreground">专业网站，一键生成</p>
               </div>
             </div>
-          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -281,7 +282,7 @@ export function AIEditorFull() {
                   {message.type === 'ai' ? (
                     <Bot className="w-3 h-3" />
                   ) : (
-                    <User className="w-3 h-3" />
+                    user?.email?.charAt(0).toUpperCase() || 'U'
                   )}
                 </AvatarFallback>
               </Avatar>
@@ -419,7 +420,7 @@ export function AIEditorFull() {
           </div>
         </div>
 
-        <div className="flex-1 bg-gray-50">
+        <div className="flex-1 bg-white">
           <Tabs value={viewMode} className="h-full">
             <TabsContent value="preview" className="h-full p-4 m-0">
               <div className="h-full flex items-center justify-center">
@@ -434,11 +435,15 @@ export function AIEditorFull() {
             </TabsContent>
             <TabsContent value="code" className="h-full p-4 m-0">
               <div className="h-full">
-                <textarea
+                <CodeEditor
                   value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  className="w-full h-full p-4 font-mono text-sm bg-white border rounded resize-none focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="HTML代码将在这里显示..."
+                  onChange={setContent}
+                  language="html"
+                  theme="traditional"
+                  readOnly={false}
+                  minimap={true}
+                  lineNumbers="on"
+                  height="100%"
                 />
               </div>
             </TabsContent>

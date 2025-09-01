@@ -1,8 +1,8 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import type { APIResponse, Website, User, AIConversation, UserSettings, TokenUsage, DailyUsage } from '@/shared/types';
 
-// Base API configuration - 在开发模式下强制使用代理
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+// Base API configuration
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || ((import.meta as any).env?.DEV ? '/api' : 'http://localhost:3001/api');
 
 class APIClient {
   private client: AxiosInstance;
@@ -161,7 +161,7 @@ export const aiService = {
     // 统一token获取逻辑
     const zustandAuth = JSON.parse(localStorage.getItem('auth-storage') || '{}');
     const token = zustandAuth?.state?.token || localStorage.getItem('auth-token');
-    const baseURL = import.meta.env.VITE_API_URL || '/api';
+    const baseURL = (import.meta as any).env?.VITE_API_URL || ((import.meta as any).env?.DEV ? '/api' : 'http://localhost:3001/api');
     
     try {
       const response = await fetch(`${baseURL}/ai/generate-stream`, {
@@ -237,7 +237,7 @@ export const aiService = {
     // 统一token获取逻辑
     const zustandAuth = JSON.parse(localStorage.getItem('auth-storage') || '{}');
     const token = zustandAuth?.state?.token || localStorage.getItem('auth-token');
-    const baseURL = import.meta.env.VITE_API_URL || '/api';
+    const baseURL = (import.meta as any).env?.VITE_API_URL || ((import.meta as any).env?.DEV ? '/api' : 'http://localhost:3001/api');
     console.log('🔗 使用API地址:', `${baseURL}/ai/edit-stream`);
     console.log('📦 Token来源检查:', { hasZustand: !!zustandAuth?.state, hasLocalToken: !!localStorage.getItem('auth-token') });
     
@@ -314,17 +314,17 @@ export const aiService = {
     conversationHistory: any[];
     stage: string;
     requirements: any;
-  }, onChunk: (chunk: string) => void, onComplete: (fullResponse: string) => void, onError: (error: string) => void, abortController?: AbortController) => {
+  }, onChunk: (chunk: string) => void, onComplete: (fullResponse: string) => void, onError: (error: string) => void, abortController?: AbortController, onEvent?: (evt: { event: string; data?: any }) => void) => {
     console.log('🌊 前端开始chat流式请求:', { message: data.message.substring(0, 50), stage: data.stage });
     // 统一token获取逻辑
     const zustandAuth = JSON.parse(localStorage.getItem('auth-storage') || '{}');
     const token = zustandAuth?.state?.token || localStorage.getItem('auth-token');
     console.log('🔑 获取到的token:', token ? token.substring(0, 20) + '...' : 'null');
     console.log('📦 Zustand状态检查:', { hasZustand: !!zustandAuth?.state, hasLocalToken: !!localStorage.getItem('auth-token') });
-    const baseURL = import.meta.env.VITE_API_URL || '/api';
+    const baseURL = (import.meta as any).env?.VITE_API_URL || ((import.meta as any).env?.DEV ? '/api' : 'http://localhost:3001/api');
     const fullApiUrl = `${baseURL}/ai/chat-stream`;
     console.log('🔗 使用chat-stream API地址:', fullApiUrl);
-    console.log('🌍 环境变量检查:', { DEV: import.meta.env.DEV, VITE_API_URL: import.meta.env.VITE_API_URL });
+    console.log('🌍 环境变量检查:', { DEV: (import.meta as any).env?.DEV, VITE_API_URL: (import.meta as any).env?.VITE_API_URL });
     
     try {
       const response = await fetch(fullApiUrl, {
@@ -332,9 +332,11 @@ export const aiService = {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
+          'Accept': 'text/event-stream',
         },
         body: JSON.stringify(data),
         signal: abortController?.signal,
+        cache: 'no-store',
       });
 
       console.log('📡 Fetch响应状态:', response.status, response.statusText);
@@ -377,6 +379,7 @@ export const aiService = {
 
       const decoder = new TextDecoder();
       let fullResponse = '';
+      let completed = false;
       let hasReceivedData = false;
 
       // 设置连接超时
@@ -385,7 +388,7 @@ export const aiService = {
           reader.cancel();
           onError('连接超时，请检查网络或重试');
         }
-      }, 30000); // 30秒超时
+      }, 15000); // 15秒超时
 
       try {
         while (true) {
@@ -416,15 +419,13 @@ export const aiService = {
                 if (!jsonStr) continue;
                 const eventData = JSON.parse(jsonStr);
                 
-                // 处理心跳事件
+                // 事件透传：连接/心跳
                 if (eventData.event === 'heartbeat') {
-                  console.log('💓 收到心跳信号');
+                  onEvent?.({ event: 'heartbeat', data: eventData });
                   continue;
                 }
-                
-                // 处理连接确认事件
                 if (eventData.event === 'connected') {
-                  console.log('✅ SSE连接已建立');
+                  onEvent?.({ event: 'connected', data: eventData });
                   continue;
                 }
                 
@@ -433,11 +434,14 @@ export const aiService = {
                   fullResponse += chunkContent;
                   onChunk(chunkContent);
                 } else if (eventData.type === 'complete' || eventData.type === 'done') {
-                  console.log('✅ 收到完成信号');
-                  onComplete(fullResponse || eventData.content);
+                  if (!completed) {
+                    completed = true;
+                    onEvent?.({ event: 'done', data: eventData });
+                    onComplete(fullResponse || eventData.content);
+                  }
                   return;
                 } else if (eventData.type === 'error') {
-                  console.error('❌ 收到错误信号:', eventData.error);
+                  onEvent?.({ event: 'error', data: eventData });
                   onError(eventData.error);
                   return;
                 }
@@ -449,16 +453,18 @@ export const aiService = {
         }
         
         // 正常完成
-        if (fullResponse) {
+        if (!completed && fullResponse) {
+          completed = true;
           onComplete(fullResponse);
         }
         
       } catch (streamError) {
         clearTimeout(connectionTimeout);
         console.error('🚫 流处理异常:', streamError);
-        if (fullResponse) {
+        if (!completed && fullResponse) {
+          completed = true;
           onComplete(fullResponse);
-        } else {
+        } else if (!completed) {
           onError('连接处理失败');
         }
       }
@@ -507,20 +513,41 @@ export const aiService = {
 
 // Deployment service
 export const deploymentService = {
-  deployWebsite: (websiteId: string) =>
-    apiClient.post<{ message: string }>(`/deployment/deploy/${websiteId}`),
+  // 部署网站到指定域名
+  deployWebsite: (websiteId: string, domain: string) =>
+    apiClient.post<{ message: string }>(`/deployment/deploy/${websiteId}`, { domain }),
   
+  // 取消部署
   undeployWebsite: (websiteId: string) =>
     apiClient.post<{ message: string }>(`/deployment/undeploy/${websiteId}`),
   
+  // 获取所有部署记录
+  getDeployments: () =>
+    apiClient.get<any[]>('/deployment/list'),
+  
+  // 获取特定网站的部署状态
   getDeploymentStatus: (websiteId: string) =>
     apiClient.get<any[]>(`/deployment/status/${websiteId}`),
   
+  // DNS检查
   checkDNS: (domain: string) =>
     apiClient.post<{ resolved: boolean }>('/deployment/check-dns', { domain }),
   
+  // 申请SSL证书
   requestSSL: (domain: string) =>
     apiClient.post<{ success: boolean }>('/deployment/ssl', { domain }),
+  
+  // 获取域名配置
+  getDomainConfigs: () =>
+    apiClient.get<any[]>('/deployment/domains'),
+  
+  // 更新域名配置
+  updateDomainConfig: (domain: string, config: any) =>
+    apiClient.put<{ message: string }>(`/deployment/domains/${domain}`, config),
+  
+  // 删除域名配置
+  deleteDomainConfig: (domain: string) =>
+    apiClient.delete<{ message: string }>(`/deployment/domains/${domain}`),
 };
 
 // Server service
@@ -625,6 +652,21 @@ export const tokenService = {
       groupBy: string;
     }>(`/tokens/usage/range?${queryParams.toString()}`);
   },
+};
+
+// Screenshot service
+export const screenshotService = {
+  // 生成网站缩略图
+  generateThumbnail: (websiteId: string, domain: string) =>
+    apiClient.post<{ success: boolean; thumbnailUrl: string; message: string }>(`/screenshots/generate/${websiteId}`, { domain }),
+  
+  // 获取网站缩略图URL
+  getThumbnail: (websiteId: string) =>
+    apiClient.get<{ thumbnailUrl: string }>(`/screenshots/website/${websiteId}`),
+  
+  // 删除网站缩略图
+  deleteThumbnail: (websiteId: string) =>
+    apiClient.delete<{ success: boolean; message: string }>(`/screenshots/website/${websiteId}`),
 };
 
 export default apiClient;

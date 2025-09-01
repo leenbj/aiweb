@@ -22,6 +22,7 @@ import deploymentRoutes from './routes/deployment';
 import serverRoutes from './routes/server';
 import settingsRoutes from './routes/settings';
 import tokensRoutes from './routes/tokens';
+// import screenshotRoutes from './routes/screenshots';
 
 // Global error handlers for unhandled promises and exceptions
 process.on('unhandledRejection', (reason, promise) => {
@@ -69,7 +70,17 @@ async function startServer() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   }));
   
-  app.use(compression());
+  // 禁用对SSE的压缩以避免首包与分块延迟
+  app.use(compression({
+    filter: (req, res) => {
+      const accept = req.headers['accept'] || '';
+      if (typeof accept === 'string' && accept.includes('text/event-stream')) {
+        return false;
+      }
+      // @ts-ignore: compression has default filter
+      return compression.filter ? compression.filter(req, res) : true;
+    }
+  }));
   
   // Rate limiting (adjusted for development)
   const limiter = rateLimit({
@@ -95,6 +106,7 @@ async function startServer() {
   app.use('/api/server', serverRoutes);
   app.use('/api/settings', settingsRoutes);
   app.use('/api/tokens', tokensRoutes);
+  // app.use('/api/screenshots', screenshotRoutes);
   
   // Health check
   app.get('/health', (req, res) => {

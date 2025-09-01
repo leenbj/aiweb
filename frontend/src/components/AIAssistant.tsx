@@ -88,11 +88,29 @@ function extractPureHtml(content: string): string | null {
 
   // 2. 移除任何markdown代码块包装
   if (cleanContent.startsWith('```') && cleanContent.includes('```')) {
-    const codeBlockRegex = /```(?:html)?\n?([\s\S]*?)```/;
+    // 改进的正则表达式，确保正确匹配代码块开始和结束
+    const codeBlockRegex = /^```(?:html)?\s*\n?([\s\S]*?)\n?```\s*$/;
     const match = cleanContent.match(codeBlockRegex);
     if (match) {
       cleanContent = match[1].trim();
+    } else {
+      // 如果上面的正则不匹配，尝试更简单的匹配
+      const simpleRegex = /```(?:html)?\s*\n?([\s\S]*?)\n?```/;
+      const simpleMatch = cleanContent.match(simpleRegex);
+      if (simpleMatch) {
+        cleanContent = simpleMatch[1].trim();
+      }
     }
+  }
+
+  // 2.5. 额外检查并移除可能遗留的代码块标记
+  if (cleanContent.includes('```')) {
+    // 移除行首的代码块标记
+    cleanContent = cleanContent.replace(/^```(?:html)?\s*\n?/gm, '');
+    // 移除行尾的代码块标记
+    cleanContent = cleanContent.replace(/\n?\s*```\s*$/gm, '');
+    // 移除可能遗留在内容中的代码块标记
+    cleanContent = cleanContent.replace(/```\s*$/gm, '');
   }
 
   // 3. 移除任何描述性文字（增强版模式匹配）

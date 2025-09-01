@@ -12,7 +12,10 @@ model User {
   email     String   @unique
   name      String
   password  String
-  role      String   @default("user")
+  role      String   @default("user") // user, admin, super_admin
+  isActive  Boolean  @default(true)
+  maxWebsites Int    @default(10) // 网站创建限制
+  maxTokensPerDay Int @default(100000) // 每日token限制
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -20,6 +23,7 @@ model User {
   conversations AIConversation[]
   settings      UserSettings?
   tokenUsage    TokenUsage[]
+  activities    UserActivity[]
 
   @@map("users")
 }
@@ -134,6 +138,16 @@ model UserSettings {
   chatPrompt        String?  @map("chat_prompt") // 对话聊天提示词
   generatePrompt    String?  @map("generate_prompt") // 网站生成提示词
   editPrompt        String?  @map("edit_prompt") // 网站编辑提示词
+  // 通知设置
+  emailNotifications Boolean @default(true) @map("email_notifications")
+  systemNotifications Boolean @default(true) @map("system_notifications")
+  // 安全设置
+  twoFactorEnabled  Boolean  @default(false) @map("two_factor_enabled")
+  passwordExpiry    Int      @default(90) @map("password_expiry") // 密码过期天数
+  // 界面设置
+  theme             String   @default("light") // light, dark, system
+  language          String   @default("zh") // zh, en
+  timezone          String   @default("Asia/Shanghai")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -174,4 +188,32 @@ model WebsiteBackup {
 
   @@unique([websiteId, version])
   @@map("website_backups")
+}
+
+model SystemSettings {
+  id            String   @id @default(cuid())
+  key           String   @unique
+  value         String   @db.Text
+  description   String?
+  category      String   @default("general") // general, security, deployment, ai
+  isPublic      Boolean  @default(false) // 是否对普通用户可见
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model UserActivity {
+  id          String   @id @default(cuid())
+  userId      String
+  action      String   // login, logout, create_website, deploy, etc
+  resource    String?  // website_id, deployment_id, etc
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?    // 额外信息
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_activities")
 }

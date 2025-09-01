@@ -3,8 +3,10 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  createdAt: Date;
-  updatedAt: Date;
+  role?: string;
+  plan?: 'free' | 'pro' | 'enterprise';
+  createdAt: string | Date;
+  updatedAt: string | Date;
 }
 
 export interface Website {

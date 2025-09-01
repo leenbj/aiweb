@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Button } from './ui/button';
+import { Button } from './ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
@@ -152,7 +152,7 @@ export function DashboardOverview() {
         </div>
         <Button
           onClick={() => navigate('editor')}
-          className="bg-gradient-to-r from-primary to-primary/80"
+          className="bg-black hover:bg-gray-800"
         >
           <Plus className="w-4 h-4 mr-2" />
           创建新网站

@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Button } from './ui/button';
+import { Button } from './ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Textarea } from './ui/textarea';
+import { CodeEditor } from './CodeEditor';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { useAuth } from '../lib/auth';
 import {
   Send,
   Sparkles,
@@ -36,6 +38,7 @@ interface Message {
 }
 
 export function AIEditorSimple() {
+  const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -154,8 +157,7 @@ export function AIEditorSimple() {
     <div className="h-full flex bg-background">
       {/* Left Panel - Chat */}
       <div className="w-1/3 border-r flex flex-col">
-        <div className="border-b bg-background/50 backdrop-blur-sm">
-          <div className="p-4">
+        <div className="border-b bg-background/50 backdrop-blur-sm p-4">
             <div className="flex items-center gap-3">
               <Avatar variant="ai" size="md">
                 <AvatarFallback variant="ai">
@@ -167,7 +169,6 @@ export function AIEditorSimple() {
                 <p className="text-sm text-muted-foreground">专业网站，一键生成</p>
               </div>
             </div>
-          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -186,7 +187,7 @@ export function AIEditorSimple() {
                   {message.type === 'ai' ? (
                     <Bot className="w-3 h-3" />
                   ) : (
-                    <User className="w-3 h-3" />
+                    user?.email?.charAt(0).toUpperCase() || 'U'
                   )}
                 </AvatarFallback>
               </Avatar>
@@ -313,7 +314,7 @@ export function AIEditorSimple() {
           </div>
         </div>
 
-        <div className="flex-1 p-4 bg-gray-50">
+        <div className="flex-1 p-4 bg-white">
           <div className="h-full flex items-center justify-center">
             <div className={`bg-white rounded-lg shadow-lg overflow-hidden transition-all duration-300 ${getViewportClasses()}`}>
               <iframe

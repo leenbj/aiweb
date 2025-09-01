@@ -340,8 +340,13 @@ export const VisualEditor: React.FC<VisualEditorProps> = ({
                 value={content}
                 onChange={handleContentChange}
                 language="html"
+                theme="traditional"
                 typewriterMode={isGenerating}
                 typewriterSpeed={25}
+                readOnly={false}
+                minimap={true}
+                lineNumbers="on"
+                height="100%"
               />
             </div>
           </div>

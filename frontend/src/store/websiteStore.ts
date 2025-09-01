@@ -50,11 +50,14 @@ export const useWebsiteStore = create<WebsiteState>((set, get) => ({
       set({ isCreating: true });
       
       const response = await websiteService.createWebsite(data);
-      const newWebsite = response.data?.data;
+      const newWebsite = response.data?.data as Website | undefined;
+      if (!newWebsite) {
+        throw new Error('创建网站失败：服务未返回数据');
+      }
       
       set((state) => ({
-        websites: [newWebsite, ...state.websites],
-        currentWebsite: newWebsite,
+        websites: [newWebsite as Website, ...state.websites],
+        currentWebsite: newWebsite as Website,
         isCreating: false,
       }));
       
@@ -73,14 +76,14 @@ export const useWebsiteStore = create<WebsiteState>((set, get) => ({
       set({ isUpdating: true });
       
       const response = await websiteService.updateWebsite(id, data);
-      const updatedWebsite = response.data?.data;
+      const updatedWebsite = response.data?.data as Website | undefined;
       
       set((state) => ({
         websites: state.websites.map(site => 
-          site.id === id ? updatedWebsite : site
+          site.id === id && updatedWebsite ? updatedWebsite : site
         ),
         currentWebsite: state.currentWebsite?.id === id 
-          ? updatedWebsite 
+          ? (updatedWebsite || state.currentWebsite) 
           : state.currentWebsite,
         isUpdating: false,
       }));
@@ -132,7 +135,10 @@ export const useWebsiteStore = create<WebsiteState>((set, get) => ({
       
       // Fetch from API
       const response = await websiteService.getWebsite(id);
-      const website = response.data?.data;
+      const website = response.data?.data as Website | undefined;
+      if (!website) {
+        throw new Error('获取网站失败：服务未返回数据');
+      }
       
       set({ currentWebsite: website });
       
@@ -140,10 +146,10 @@ export const useWebsiteStore = create<WebsiteState>((set, get) => ({
       set((state) => ({
         websites: state.websites.some(site => site.id === id)
           ? state.websites
-          : [...state.websites, website],
+          : [...state.websites, website as Website],
       }));
       
-      return website;
+      return website as Website;
     } catch (error: any) {
       const message = error.response?.data?.error || '获取网站失败';
       toast.error(message);
@@ -156,15 +162,18 @@ export const useWebsiteStore = create<WebsiteState>((set, get) => ({
       set({ isCreating: true });
       
       const response = await websiteService.duplicateWebsite(id);
-      const newWebsite = response.data?.data;
+      const newWebsite = response.data?.data as Website | undefined;
+      if (!newWebsite) {
+        throw new Error('复制网站失败：服务未返回数据');
+      }
       
       set((state) => ({
-        websites: [newWebsite, ...state.websites],
+        websites: [newWebsite as Website, ...state.websites],
         isCreating: false,
       }));
       
       toast.success('网站复制成功！');
-      return newWebsite;
+      return newWebsite as Website;
     } catch (error: any) {
       set({ isCreating: false });
       const message = error.response?.data?.error || '复制网站失败';

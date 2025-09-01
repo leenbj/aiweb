@@ -20,11 +20,29 @@ export function extractPureHtmlFromResponse(content: string): string | null {
 
   // 1. 移除任何markdown代码块包装
   if (cleanContent.startsWith('```') && cleanContent.includes('```')) {
-    const codeBlockRegex = /```(?:html)?\n?([\s\S]*?)```/;
+    // 改进的正则表达式，确保正确匹配代码块开始和结束
+    const codeBlockRegex = /^```(?:html)?\s*\n?([\s\S]*?)\n?```\s*$/;
     const match = cleanContent.match(codeBlockRegex);
     if (match) {
       cleanContent = match[1].trim();
+    } else {
+      // 如果上面的正则不匹配，尝试更简单的匹配
+      const simpleRegex = /```(?:html)?\s*\n?([\s\S]*?)\n?```/;
+      const simpleMatch = cleanContent.match(simpleRegex);
+      if (simpleMatch) {
+        cleanContent = simpleMatch[1].trim();
+      }
     }
+  }
+
+  // 1.5. 额外检查并移除可能遗留的代码块标记
+  if (cleanContent.includes('```')) {
+    // 移除行首的代码块标记
+    cleanContent = cleanContent.replace(/^```(?:html)?\s*\n?/gm, '');
+    // 移除行尾的代码块标记
+    cleanContent = cleanContent.replace(/\n?\s*```\s*$/gm, '');
+    // 移除可能遗留在内容中的代码块标记
+    cleanContent = cleanContent.replace(/```\s*$/gm, '');
   }
 
   // 2. 移除常见的描述性文字
@@ -261,6 +279,9 @@ class DeepSeekProvider implements AIProvider {
     try {
       // 处理系统提示词
       let finalMessages = [...messages];
+      // 确保聊天模式在使用 DeepSeek Reasoner 时仍采用更快速的 chat 模型
+      const targetModel = model || config.ai.deepseek.model;
+      const streamModel = targetModel === 'deepseek-reasoner' ? 'deepseek-chat' : targetModel;
       if (customPrompt) {
         // 如果有自定义提示词，确保它作为系统消息存在
         const hasSystemMessage = finalMessages.some(msg => msg.role === "system");
@@ -287,10 +308,10 @@ class DeepSeekProvider implements AIProvider {
       }
 
       const stream = await this.client.chat.completions.create({
-        model: model || config.ai.deepseek.model,
+        model: streamModel as string,
         messages: finalMessages,
-        temperature: 0.7,
-        max_tokens: 1000,
+        temperature: 0.5,
+        max_tokens: 800,
         stream: true,
       });
 

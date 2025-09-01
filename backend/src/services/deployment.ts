@@ -2,45 +2,75 @@ import { exec } from 'child_process';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { promisify } from 'util';
+import punycode from 'punycode';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { prisma } from '../database';
+// import { screenshotService } from './screenshot';
 
 const execAsync = promisify(exec);
 
 export class DeploymentService {
+  
+  /**
+   * 转换中文域名为 Punycode 格式
+   */
+  private convertDomainToPunycode(domain: string): string {
+    try {
+      // 分割域名各部分
+      const parts = domain.split('.');
+      const convertedParts = parts.map(part => {
+        // 检查是否包含非ASCII字符
+        if (/[^\x00-\x7F]/.test(part)) {
+          // 转换为 Punycode
+          return punycode.toASCII(part);
+        }
+        return part;
+      });
+      
+      const convertedDomain = convertedParts.join('.');
+      logger.info(`Domain conversion: ${domain} -> ${convertedDomain}`);
+      return convertedDomain;
+    } catch (error) {
+      logger.error(`Failed to convert domain ${domain}:`, error);
+      return domain; // 转换失败则返回原域名
+    }
+  }
+  
   async deployWebsite(websiteId: string, domain: string, content: string): Promise<void> {
-    logger.info(`Starting deployment for website ${websiteId} to domain ${domain}`);
+    // 转换中文域名
+    const convertedDomain = this.convertDomainToPunycode(domain);
+    logger.info(`Starting deployment for website ${websiteId} to domain ${domain} (converted: ${convertedDomain})`);
 
     try {
       // Create deployment record
       const deployment = await prisma.deployment.create({
         data: {
           websiteId,
-          domain,
+          domain: convertedDomain, // 使用转换后的域名
           status: 'deploying',
-          serverPath: path.join(config.server.sitesPath, domain),
-          logs: 'Deployment started',
+          serverPath: path.join(config.server.sitesPath, convertedDomain),
+          logs: `Deployment started for ${domain} (converted to ${convertedDomain})`,
         },
       });
 
       // Create website directory
-      const sitePath = path.join(config.server.sitesPath, domain);
+      const sitePath = path.join(config.server.sitesPath, convertedDomain);
       await this.ensureDirectory(sitePath);
 
       // Write website files
-      await this.writeWebsiteFiles(sitePath, content, domain);
+      await this.writeWebsiteFiles(sitePath, content, convertedDomain);
 
       // Configure Nginx
-      await this.configureNginx(domain, sitePath);
+      await this.configureNginx(convertedDomain, sitePath);
 
       // Check DNS
-      const dnsResolved = await this.checkDNS(domain);
+      const dnsResolved = await this.checkDNS(convertedDomain);
 
       // Request SSL certificate if DNS is resolved
       let sslConfigured = false;
       if (dnsResolved) {
-        sslConfigured = await this.configureSsl(domain);
+        sslConfigured = await this.configureSsl(convertedDomain);
       }
 
       // Update deployment status
@@ -63,9 +93,21 @@ export class DeploymentService {
         },
       });
 
-      logger.info(`Deployment completed for ${domain}`);
+      // TODO: 生成网站缩略图（异步，不阻塞部署）
+      // if (sslConfigured) {
+      //   setTimeout(async () => {
+      //     try {
+      //       logger.info(`Generating thumbnail for ${convertedDomain}`);
+      //       await screenshotService.generateWebsiteThumbnail(convertedDomain, websiteId);
+      //     } catch (thumbnailError) {
+      //       logger.warn(`Failed to generate thumbnail for ${convertedDomain}:`, thumbnailError);
+      //     }
+      //   }, 30000); // 等待30秒让网站稳定
+      // }
+      
+      logger.info(`Deployment completed for ${domain} (${convertedDomain})`);
     } catch (error) {
-      logger.error(`Deployment failed for ${domain}:`, error);
+      logger.error(`Deployment failed for ${domain} (${convertedDomain}):`, error);
       
       // Update deployment with error
       await prisma.deployment.updateMany({
@@ -279,15 +321,18 @@ server {
   }
 
   async undeployWebsite(domain: string): Promise<void> {
+    // 转换中文域名
+    const convertedDomain = this.convertDomainToPunycode(domain);
+    
     try {
-      logger.info(`Starting undeployment for domain ${domain}`);
+      logger.info(`Starting undeployment for domain ${domain} (converted: ${convertedDomain})`);
 
       // Remove website files
-      const sitePath = path.join(config.server.sitesPath, domain);
+      const sitePath = path.join(config.server.sitesPath, convertedDomain);
       await execAsync(`rm -rf ${sitePath}`);
 
       // Remove nginx configuration
-      const configPath = path.join(config.server.nginxPath, domain);
+      const configPath = path.join(config.server.nginxPath, convertedDomain);
       await execAsync(`rm -f ${configPath}`);
 
       // Reload nginx
@@ -295,14 +340,14 @@ server {
 
       // Revoke SSL certificate
       try {
-        await execAsync(`certbot delete --cert-name ${domain} --non-interactive`);
+        await execAsync(`certbot delete --cert-name ${convertedDomain} --non-interactive`);
       } catch (error) {
-        logger.warn(`Failed to revoke SSL certificate for ${domain}:`, error);
+        logger.warn(`Failed to revoke SSL certificate for ${convertedDomain}:`, error);
       }
 
-      logger.info(`Undeployment completed for ${domain}`);
+      logger.info(`Undeployment completed for ${domain} (${convertedDomain})`);
     } catch (error) {
-      logger.error(`Undeployment failed for ${domain}:`, error);
+      logger.error(`Undeployment failed for ${domain} (${convertedDomain}):`, error);
       throw error;
     }
   }

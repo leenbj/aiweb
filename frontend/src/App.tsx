@@ -4,9 +4,9 @@ import { useRouter } from './lib/router';
 
 // Import existing pages
 import { Dashboard } from './pages/Dashboard';
-import { WebsiteEditor } from './pages/WebsiteEditor';
 import { Settings } from './pages/Settings';
 import { Deployments } from './pages/Deployments';
+import { DeploymentManagement } from './pages/DeploymentManagement';
 import { TokenStatsSimple as TokenStats } from './pages/TokenStatsSimple';
 
 // Import new components
@@ -15,6 +15,7 @@ import { DashboardOverview } from './components/DashboardOverview';
 import { AuthPage } from './components/AuthPage';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { AIEditorWithNewUI } from './components/AIEditorWithNewUI';
+import GlobalHeartbeat from './components/GlobalHeartbeat';
 
 export default function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -67,7 +68,7 @@ export default function App() {
       case 'websites':
         return <Dashboard />; // Use existing Dashboard for websites management
       case 'deploy':
-        return <Deployments />;
+        return <DeploymentManagement />;
       case 'tokens':
         return <TokenStats />;
       default:
@@ -77,6 +78,7 @@ export default function App() {
 
   return (
     <div className="h-screen flex">
+      <GlobalHeartbeat />
       <DashboardSidebar 
         isCollapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
