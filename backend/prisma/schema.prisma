@@ -13,6 +13,7 @@ model User {
   name      String
   password  String
   role      String   @default("user") // user, admin, super_admin
+  avatarUrl String?  // 用户头像URL
   isActive  Boolean  @default(true)
   maxWebsites Int    @default(10) // 网站创建限制
   maxTokensPerDay Int @default(100000) // 每日token限制
@@ -24,6 +25,7 @@ model User {
   settings      UserSettings?
   tokenUsage    TokenUsage[]
   activities    UserActivity[]
+  permissions   UserPermission[]
 
   @@map("users")
 }
@@ -138,6 +140,7 @@ model UserSettings {
   chatPrompt        String?  @map("chat_prompt") // 对话聊天提示词
   generatePrompt    String?  @map("generate_prompt") // 网站生成提示词
   editPrompt        String?  @map("edit_prompt") // 网站编辑提示词
+  notificationEmails String? @map("notification_emails") // 通知邮箱（逗号分隔）
   // 通知设置
   emailNotifications Boolean @default(true) @map("email_notifications")
   systemNotifications Boolean @default(true) @map("system_notifications")
@@ -173,6 +176,20 @@ model TokenUsage {
 
   @@unique([userId, date, hour, provider])
   @@map("token_usage")
+}
+
+model UserPermission {
+  id          String   @id @default(cuid())
+  userId      String
+  permission  String
+  granted     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permission])
+  @@map("user_permissions")
 }
 
 model WebsiteBackup {

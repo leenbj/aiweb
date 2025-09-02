@@ -22,21 +22,27 @@ import deploymentRoutes from './routes/deployment';
 import serverRoutes from './routes/server';
 import settingsRoutes from './routes/settings';
 import tokensRoutes from './routes/tokens';
+import adminRoutes from './routes/admin';
+import { uploadsRouter } from './routes/uploads';
+import notificationsRoutes from './routes/notifications';
 // import screenshotRoutes from './routes/screenshots';
 
 // Global error handlers for unhandled promises and exceptions
 process.on('unhandledRejection', (reason, promise) => {
   logger.error(`Unhandled Rejection at promise: ${promise}, reason: ${reason}`);
-  // Don't exit the process for unhandled rejections in production
-  if (config.env === 'development') {
-    process.exit(1);
+  // In development, keep process alive for better DX
+  if (config.env === 'production') {
+    // Optionally exit in production to allow restart
+    // process.exit(1);
   }
 });
 
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught Exception:', error);
-  // Gracefully shutdown on uncaught exceptions
-  process.exit(1);
+  if (config.env === 'production') {
+    // Gracefully shutdown on uncaught exceptions
+    process.exit(1);
+  }
 });
 
 async function startServer() {
@@ -94,8 +100,12 @@ async function startServer() {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
   
-    // Initialize database with retry logic
-    await initDatabaseWithRetry();
+    // Initialize database with retry logic (do not crash app if DB is down in dev)
+    try {
+      await initDatabaseWithRetry();
+    } catch (err) {
+      logger.error('Database initialization failed. Continuing to start server so that frontend can load.');
+    }
   
   // Routes
   app.use('/api/auth', authRoutes);
@@ -106,6 +116,11 @@ async function startServer() {
   app.use('/api/server', serverRoutes);
   app.use('/api/settings', settingsRoutes);
   app.use('/api/tokens', tokensRoutes);
+  app.use('/api/admin', adminRoutes);
+  app.use('/api/uploads', uploadsRouter);
+  app.use('/api/notifications', notificationsRoutes);
+  // Optional alias to serve uploaded files under /uploads
+  app.use('/uploads', uploadsRouter);
   // app.use('/api/screenshots', screenshotRoutes);
   
   // Health check
@@ -190,5 +205,5 @@ async function initDatabaseWithRetry(retries = 3) {
 
 startServer().catch((error) => {
   logger.error('Failed to start server:', error);
-  process.exit(1);
+  // In dev, avoid exiting so nodemon doesn't loop-crash
 });

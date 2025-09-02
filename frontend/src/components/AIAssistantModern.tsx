@@ -59,7 +59,6 @@ export default function AIAssistantModern({
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState(projectName);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatListRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
   const { setConnected: setGlobalConnected, setHeartbeat: setGlobalHeartbeat, triggerPulse: globalPulse } = useSseStore();
@@ -68,7 +67,6 @@ export default function AIAssistantModern({
   const [pendingCode, setPendingCode] = useState<string>('');
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const codeStartedRef = useRef<boolean>(false);
-  const [listOverflow, setListOverflow] = useState<boolean>(false);
   // 流式解析状态：把代码从文本中分离，避免代码出现在文本里
   const insideCodeRef = useRef<boolean>(false);
   const codeBufferRef = useRef<string>('');
@@ -427,26 +425,10 @@ export default function AIAssistantModern({
     }
   };
 
-  // 动态检测对话列表是否溢出，决定是否显示滚动条
-  const recomputeOverflow = React.useCallback(() => {
-    const el = chatListRef.current;
-    if (!el) return;
-    const overflowing = el.scrollHeight > el.clientHeight + 1;
-    setListOverflow(overflowing);
-  }, []);
-
-  useEffect(() => {
-    recomputeOverflow();
-  }, [messages, isGenerating, streamingMessageId, recomputeOverflow]);
-
-  useEffect(() => {
-    const onResize = () => recomputeOverflow();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [recomputeOverflow]);
+  // 使用 overflow-y-auto + min-h-0 自然在内容溢出时才出现滚动条
 
   return (
-    <div className={`flex flex-col h-full bg-white ${className}`}>
+    <div className={`flex flex-col h-full min-h-0 bg-white ${className}`}>
       {/* Header - 匹配右侧模块高度 */}
       <div className="border-b border-gray-200 p-4 h-[72px] flex items-center">
         <div className="flex items-center justify-between w-full">
@@ -535,11 +517,8 @@ export default function AIAssistantModern({
         </div>
       </div>
 
-      {/* 消息列表 - 使用全局美化滚动条 */}
-      <div
-        ref={chatListRef}
-        className={`flex-1 p-6 space-y-6 ${listOverflow ? 'overflow-y-auto chat-scroll' : 'overflow-y-visible'}`}
-      >
+      {/* 消息列表 - 默认不滚动（空态），有内容时自动滚动 */}
+      <div className={`flex-1 min-h-0 ${messages.length === 0 ? 'overflow-hidden' : 'overflow-y-auto'} p-6 space-y-6 chat-scroll`}>
         {messages.length === 0 && (
           // 中心引导区域 - 参考16.png
           <div className="flex flex-col items-center justify-center h-full text-center space-y-6">
@@ -588,16 +567,16 @@ export default function AIAssistantModern({
                     {/* 始终显示Reasoning区域，在流式响应开始时显示 */}
                     {(message.reasoning || (message.isStreaming && streamingMessageId === message.id)) && (
                       <details className="group" open={true}>
-                        <summary className="cursor-pointer text-sm text-blue-600 hover:text-blue-800 flex items-center gap-2 select-none font-medium">
+                        <summary className="cursor-pointer text-sm text-gray-500 hover:text-gray-600 flex items-center gap-2 select-none font-medium">
                           <span>💭 Reasoning</span>
-                          <ChevronRight className="w-3 h-3 group-open:rotate-90 transition-transform" />
+                          <ChevronRight className="w-3 h-3 group-open:rotate-90 transition-transform text-gray-400" />
                         </summary>
-                        <div className="mt-2 p-3 bg-blue-50 rounded-lg text-sm text-blue-800 border border-blue-200">
+                        <div className="mt-2 p-3 bg-gray-50 rounded-lg text-sm text-gray-600 border border-gray-200">
                           {message.reasoning ? (
                             <p>{message.reasoning}</p>
                           ) : (
                             <div className="flex items-center gap-2">
-                              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                              <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse"></div>
                               <span>AI正在思考中，请稍候...</span>
                             </div>
                           )}

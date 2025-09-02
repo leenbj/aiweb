@@ -249,7 +249,8 @@ class DeepSeekProvider implements AIProvider {
       model: model || config.ai.deepseek.model,
       messages: messages,
       temperature: 0.7,
-      max_tokens: 1000,
+      // 进一步提高输出上限，避免长文档被截断
+      max_tokens: 8000,
       stream: false,
     });
 
@@ -311,7 +312,8 @@ class DeepSeekProvider implements AIProvider {
         model: streamModel as string,
         messages: finalMessages,
         temperature: 0.5,
-        max_tokens: 800,
+        // 进一步提高输出上限，避免长文档被截断
+        max_tokens: 6000,
         stream: true,
       });
 
@@ -359,7 +361,8 @@ class DeepSeekProvider implements AIProvider {
         { role: 'user', content: prompt }
       ],
       temperature: 0.7,
-      max_tokens: 4000,
+      // 进一步提高输出上限
+      max_tokens: 8000,
     });
 
     // 记录Token使用情况
@@ -445,7 +448,8 @@ class DeepSeekProvider implements AIProvider {
           { role: 'user', content: prompt }
         ],
         temperature: 0.7,
-        max_tokens: 4000,
+        // 进一步提高输出上限
+        max_tokens: 8000,
         stream: true,
         // 根据DeepSeek文档，添加额外参数确保流式响应
         stream_options: { include_usage: true }
@@ -644,7 +648,8 @@ class DeepSeekProvider implements AIProvider {
         { role: 'user', content: `当前HTML代码：\n${content}\n\n修改指令：${instructions}` }
       ],
       temperature: 0.3,
-      max_tokens: 4000,
+      // 进一步提高输出上限
+      max_tokens: 8000,
     });
 
     // 记录Token使用情况
@@ -681,7 +686,8 @@ class DeepSeekProvider implements AIProvider {
         { role: 'user', content: content }
       ],
       temperature: 0.2,
-      max_tokens: 4000,
+      // 进一步提高输出上限
+      max_tokens: 8000,
     });
 
     const generatedContent = response.choices[0]?.message?.content;
@@ -731,7 +737,8 @@ Return ONLY JSON format, no markdown code blocks.`;
         { role: 'user', content: prompt }
       ],
       temperature: 0.7,
-      max_tokens: 4000,
+      // 进一步提高输出上限
+      max_tokens: 8000,
     });
 
     const generatedContent = response.choices[0]?.message?.content;
@@ -1025,7 +1032,8 @@ Return ONLY the modified HTML code, no explanations.`;
         { role: 'user', content: `Current HTML:\n${content}\n\nInstructions: ${instructions}` }
       ],
       temperature: 0.3,
-      max_tokens: 4000,
+      // 进一步提高输出上限
+      max_tokens: 8000,
     });
 
     const generatedContent = response.choices[0]?.message?.content;
@@ -1092,7 +1100,8 @@ Return ONLY the optimized HTML code.`;
       model: model || config.ai.openai.model,
       messages: finalMessages,
       temperature: 0.7,
-      max_tokens: 1000,
+      // 进一步提高输出上限
+      max_tokens: 8000,
       stream: false,
     });
 
@@ -1136,7 +1145,9 @@ Return ONLY the optimized HTML code.`;
         model: model || config.ai.openai.model,
         messages: finalMessages,
         temperature: 0.7,
-        max_tokens: 1000,
+        // 提高输出上限，避免网页代码被截断
+        // 进一步提高输出上限
+        max_tokens: 8000,
         stream: true,
       });
 
@@ -1181,7 +1192,8 @@ class AnthropicProvider implements AIProvider {
 
     const response = await this.client.messages.create({
       model: model || config.ai.anthropic.model,
-      max_tokens: 4000,
+      // 进一步提高输出上限
+      max_tokens: 8000,
       system: systemPrompt,
       messages: [
         { role: 'user', content: prompt }
@@ -1278,7 +1290,8 @@ Return ONLY the optimized HTML code.`;
 
     const response = await this.client.messages.create({
       model: model || config.ai.anthropic.model,
-      max_tokens: 1000,
+      // 提高输出上限，避免网页代码被截断
+      max_tokens: 4000,
       system: systemPrompt,
       messages: chatMessages,
     });

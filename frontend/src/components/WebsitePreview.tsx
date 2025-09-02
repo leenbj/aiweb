@@ -47,6 +47,16 @@ export const WebsitePreview: React.FC<WebsitePreviewProps> = ({
 
       // 处理内容逻辑改进
       let finalContent = content.trim();
+
+      // 兜底清洗：移除可能残留的Markdown代码围栏与语言标记
+      // 例如：```html ... ``` 或者 去掉围栏后残留的开头“html”
+      finalContent = finalContent
+        // 去掉起始围栏 ```html 或 ```
+        .replace(/^```(?:html)?\s*\r?\n?/i, '')
+        // 去掉结束围栏 ```
+        .replace(/\r?\n?\s*```\s*$/i, '')
+        // 如果开头意外残留“html”，且后面紧跟HTML起始结构，则移除
+        .replace(/^\s*html\s*(?=(<!DOCTYPE|<html|<head|<body))/i, '');
       
       // 如果内容为空，显示默认页面
       if (!finalContent) {
@@ -427,7 +437,7 @@ ${bodyContent}
   };
 
   return (
-    <div className={`relative h-full bg-white ${className}`}>
+    <div className={`relative h-full bg-transparent ${className}`}>
       {isLoading && (
         <div className="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center z-50">
           <div className="flex items-center space-x-2 text-gray-600">

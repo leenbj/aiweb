@@ -61,6 +61,7 @@ router.post('/register', async (req, res) => {
         name: true,
         email: true,
         role: true,
+        avatarUrl: true,
         createdAt: true,
       },
     });
@@ -162,6 +163,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res) => {
         name: true,
         email: true,
         role: true,
+        avatarUrl: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -193,6 +195,7 @@ router.put('/profile', authenticate, async (req: AuthRequest, res) => {
     const updateSchema = Joi.object({
       name: Joi.string().min(2).max(50).optional(),
       email: Joi.string().email().optional(),
+      avatarUrl: Joi.string().uri().optional(),
     });
 
     const { error } = updateSchema.validate(req.body);
@@ -203,7 +206,7 @@ router.put('/profile', authenticate, async (req: AuthRequest, res) => {
       });
     }
 
-    const { name, email } = req.body;
+    const { name, email, avatarUrl } = req.body;
     const userId = req.user!.id;
 
     // Check if email is already taken by another user
@@ -226,12 +229,13 @@ router.put('/profile', authenticate, async (req: AuthRequest, res) => {
     // Update user
     const updatedUser = await prisma.user.update({
       where: { id: userId },
-      data: { name, email },
+      data: { name, email, avatarUrl },
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
+        avatarUrl: true,
         createdAt: true,
         updatedAt: true,
       },

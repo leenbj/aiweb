@@ -109,14 +109,13 @@ export class AIChatService {
           }
         }
 
-        // 追加：检测HTML完整性，必要时自动续写直到完整</html>
+        // 追加：检测HTML完整性，必要时自动续写直到完整
         try {
-          const hasStarted = /```html|<!DOCTYPE\s+html|<html|<head|<body/i.test(fullResponse);
-          let currentHtml = extractPureHtmlFromResponse(fullResponse) || '';
-          let isComplete = /<\/html>/i.test(currentHtml) || /<\/html>/i.test(fullResponse);
-          const MAX_FOLLOWUPS = 10; // 进一步提高续写上限
+          const hasStarted = /```html|<!DOCTYPE\s+html|<html/i.test(fullResponse);
+          const currentHtml = extractPureHtmlFromResponse(fullResponse);
+          let isComplete = !!(currentHtml && /<\/html>/i.test(currentHtml));
+          const MAX_FOLLOWUPS = 2; // 防止无限循环
           let followups = 0;
-          let lastHtmlLength = currentHtml.length;
 
           while (hasStarted && !isComplete && followups < MAX_FOLLOWUPS) {
             followups++;
@@ -133,7 +132,7 @@ export class AIChatService {
               const more = await provider.chat(followupMessages, userId, settings?.systemPrompt, model);
               const addition = more || '';
               // 增量写入到SSE，让前端继续流式显示
-              const parts = addition.match(/[\s\S]{1,512}/g) || [addition];
+              const parts = addition.match(/.{1,512}/gs) || [addition];
               for (const part of parts) {
                 fullResponse += part;
                 chunkCount++;
@@ -162,62 +161,14 @@ export class AIChatService {
                 model
               );
             } else {
-              break;
+              break; // 无可用方法
             }
 
-            currentHtml = extractPureHtmlFromResponse(fullResponse) || '';
-            isComplete = /<\/html>/i.test(currentHtml) || /<\/html>/i.test(fullResponse);
-            // 若无进展，则提前中断以避免空转
-            if (currentHtml.length <= lastHtmlLength && !isComplete) {
-              logger.warn('自动续写检测到无进展，提前结束。', { followups, htmlLen: currentHtml.length, lastHtmlLength });
-              break;
-            }
-            lastHtmlLength = currentHtml.length;
+            const updatedHtml = extractPureHtmlFromResponse(fullResponse);
+            isComplete = !!(updatedHtml && /<\/html>/i.test(updatedHtml));
           }
         } catch (ensureErr) {
           logger.warn('自动续写完整HTML时发生问题，已跳过:', ensureErr);
-        }
-
-        // 尾部兜底合并：若仍未闭合，追加必要的收尾标签，确保完整
-        try {
-          let htmlStr = extractPureHtmlFromResponse(fullResponse) || '';
-          const hasHtmlOpen = /<html[^>]*>/i.test(fullResponse);
-          const hasDoctype = /<!DOCTYPE\s+html>/i.test(fullResponse);
-          const hasBodyOpen = /<body[^>]*>/i.test(fullResponse);
-          const hasHtmlClose = /<\/html>/i.test(fullResponse);
-          const hasBodyClose = /<\/body>/i.test(fullResponse);
-
-          let tail = '';
-          if (hasBodyOpen && !hasBodyClose) tail += '</body>';
-          if (hasHtmlOpen && !hasHtmlClose) tail += '</html>';
-
-          if (!hasHtmlOpen) {
-            // 若未显式<html>，但已有大量内容，构造最小包裹
-            const bodyContent = htmlStr || fullResponse;
-            const skeleton = `${hasDoctype ? '' : '<!DOCTYPE html>\n'}<html lang="zh-CN">\n<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>AI Generated</title></head>\n<body>\n${bodyContent}\n</body>\n</html>`;
-            const appendPart = skeleton;
-            // 作为单块追加
-            fullResponse += appendPart;
-            chunkCount++;
-            this.sendSSEEvent(response, 'chunk', {
-              content: appendPart,
-              fullContent: fullResponse,
-              chunkIndex: chunkCount,
-              timestamp: Date.now()
-            });
-          } else if (tail) {
-            // 仅追加必要的收尾
-            fullResponse += tail;
-            chunkCount++;
-            this.sendSSEEvent(response, 'chunk', {
-              content: tail,
-              fullContent: fullResponse,
-              chunkIndex: chunkCount,
-              timestamp: Date.now()
-            });
-          }
-        } catch (tailErr) {
-          logger.warn('尾部兜底合并失败，跳过:', tailErr);
         }
 
         // 清理心跳定时器

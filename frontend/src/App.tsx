@@ -7,7 +7,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Settings } from './pages/Settings';
 import { Deployments } from './pages/Deployments';
 import { DeploymentManagement } from './pages/DeploymentManagement';
-import { TokenStatsSimple as TokenStats } from './pages/TokenStatsSimple';
+import { TokenStats } from './pages/TokenStats';
 
 // Import new components
 import { DashboardSidebar } from './components/DashboardSidebar';
@@ -77,7 +77,7 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen flex">
+    <div className="h-screen flex min-h-0">
       <GlobalHeartbeat />
       <DashboardSidebar 
         isCollapsed={sidebarCollapsed}

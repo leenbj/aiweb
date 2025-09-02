@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { 
-  Key, Save, Eye, EyeOff, User, Bell, Shield, 
-  Palette, Globe, Server, Users, Activity, 
-  Settings as SettingsIcon, Database, Lock 
+  Key, Save, Eye, EyeOff, User, Server, Users, Activity, 
+  Settings as SettingsIcon, Database, Lock, Mail
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { settingsService } from '../services/api';
+import { settingsService, authService, adminService } from '../services/api';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { AvatarShowcase } from '../components/AvatarShowcase';
 import { useAuthStore } from '../store/authStore';
+import { useRouter } from '@/lib/router';
 
 interface SettingsForm {
   // AI设置
@@ -23,27 +23,22 @@ interface SettingsForm {
   chatPrompt: string;
   generatePrompt: string;
   editPrompt: string;
-  
-  // 通知设置
-  emailNotifications: boolean;
-  systemNotifications: boolean;
-  
-  // 安全设置
-  twoFactorEnabled: boolean;
-  passwordExpiry: number;
-  
-  // 界面设置
-  theme: 'light' | 'dark' | 'system';
-  language: 'zh' | 'en';
-  timezone: string;
 }
 
 export const Settings: React.FC = () => {
   const { user } = useAuthStore();
+  const { navigate } = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showApiKeys, setShowApiKeys] = useState(false);
-  const [activeTab, setActiveTab] = useState('ai');
+  const [activeTab, setActiveTab] = useState<'profile' | 'ai' | 'users' | 'email' | 'system' | 'activities'>('profile');
+  const [pwChanging, setPwChanging] = useState(false);
+  const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '' });
+  const [users, setUsers] = useState<any[]>([]);
+  const [permDefs, setPermDefs] = useState<Array<{ key: string; roles: string[] }>>([]);
+  const [selectedUserPerms, setSelectedUserPerms] = useState<Record<string, boolean>>({});
+  const [emailSettings, setEmailSettings] = useState<{ smtp_host: string; smtp_port: string; smtp_user: string; smtp_pass: string; smtp_from: string; smtp_enabled: boolean } | null>(null);
+  const [notifyEmails, setNotifyEmails] = useState('');
   
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const isSuperAdmin = user?.role === 'super_admin';
@@ -68,14 +63,19 @@ export const Settings: React.FC = () => {
   const currentProvider = watch('aiProvider');
 
   useEffect(() => {
+    // 同时加载默认提示词与用户设置，避免默认提示词未返回时阻塞设置加载
     loadDefaultPrompts();
+    loadSettings();
   }, []);
 
   useEffect(() => {
-    if (defaultPrompts.chatPrompt) {
-      loadSettings();
+    if (isAdmin) {
+      // preload users and permissions for admin
+      loadUsers();
+      loadPermissionDefs();
+      loadEmailSettings();
     }
-  }, [defaultPrompts]);
+  }, [isAdmin]);
 
   const loadDefaultPrompts = async () => {
     try {
@@ -106,19 +106,10 @@ export const Settings: React.FC = () => {
         setValue('deepseekModel', settings.deepseekModel || 'deepseek-chat');
         setValue('openaiModel', settings.openaiModel || 'gpt-3.5-turbo');
         setValue('anthropicModel', settings.anthropicModel || 'claude-3-haiku-20240307');
-        
-        // 通知设置
-        setValue('emailNotifications', settings.emailNotifications ?? true);
-        setValue('systemNotifications', settings.systemNotifications ?? true);
-        
-        // 安全设置
-        setValue('twoFactorEnabled', settings.twoFactorEnabled ?? false);
-        setValue('passwordExpiry', settings.passwordExpiry || 90);
-        
-        // 界面设置
-        setValue('theme', settings.theme || 'light');
-        setValue('language', settings.language || 'zh');
-        setValue('timezone', settings.timezone || 'Asia/Shanghai');
+        // 通知邮箱
+        if (settings.notificationEmails) {
+          setNotifyEmails(settings.notificationEmails);
+        }
       }
     } catch (error) {
       toast.error('加载设置失败');
@@ -131,8 +122,15 @@ export const Settings: React.FC = () => {
     try {
       setSaving(true);
       
-      // 过滤掉掩码化的API密钥，只发送真实的密钥
-      const filteredData: Partial<SettingsForm> = { ...data };
+      // 仅提交通用AI设置字段，避免后端校验失败
+      const allowedKeys: (keyof SettingsForm)[] = [
+        'deepseekApiKey','openaiApiKey','anthropicApiKey','aiProvider','deepseekModel','openaiModel','anthropicModel','chatPrompt','generatePrompt','editPrompt'
+      ];
+      const filteredData: Partial<SettingsForm> = {};
+      for (const k of allowedKeys) {
+        // @ts-ignore
+        filteredData[k] = data[k];
+      }
       
       // 如果密钥包含星号，说明是掩码化的，不应该更新
       if (filteredData.deepseekApiKey?.includes('*')) {
@@ -151,11 +149,26 @@ export const Settings: React.FC = () => {
       if (!showApiKeys) {
         await loadSettings(false);
       }
-    } catch (error) {
-      toast.error('保存设置失败');
+    } catch (error: any) {
+      const msg = error?.response?.data?.error || error?.message || '保存设置失败';
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
+  };
+
+  // Admin data loaders
+  const loadUsers = async () => {
+    try {
+      const res = await adminService.getUsers();
+      setUsers(res.data?.data || []);
+    } catch (e) { /* ignore */ }
+  };
+  const loadPermissionDefs = async () => {
+    try { const r = await adminService.getPermissionDefs(); setPermDefs(r.data?.data || []);} catch(e) { /* ignore */ }
+  };
+  const loadEmailSettings = async () => {
+    try { const r = await adminService.getEmailSettings(); setEmailSettings(r.data?.data || null);} catch(e) { /* ignore */ }
   };
 
   if (loading) {
@@ -167,13 +180,11 @@ export const Settings: React.FC = () => {
   }
 
   const tabs = [
+    { id: 'profile', label: '个人资料', icon: User },
     { id: 'ai', label: 'AI设置', icon: Key },
-    { id: 'notifications', label: '通知设置', icon: Bell },
-    { id: 'security', label: '安全设置', icon: Shield },
-    { id: 'interface', label: '界面设置', icon: Palette },
     ...(isAdmin ? [
       { id: 'users', label: '用户管理', icon: Users },
-      { id: 'system', label: '系统管理', icon: Server },
+      { id: 'email', label: '邮件设置', icon: Mail },
     ] : []),
     ...(isSuperAdmin ? [
       { id: 'activities', label: '活动日志', icon: Activity },
@@ -216,7 +227,7 @@ export const Settings: React.FC = () => {
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => setActiveTab(tab.id as any)}
                   className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
                     activeTab === tab.id
                       ? 'border-blue-500 text-blue-600'
@@ -235,6 +246,75 @@ export const Settings: React.FC = () => {
       {/* Content */}
       <div className="p-8 max-w-4xl mx-auto">
         <form id="settings-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+          {/* 个人资料 */}
+          {activeTab === 'profile' && (
+            <>
+              <div className="card">
+                <div className="card-header">
+                  <div className="flex items-center">
+                    <User className="h-5 w-5 text-gray-600 mr-3" />
+                    <div>
+                      <h2 className="text-lg font-semibold text-gray-900">个人资料</h2>
+                      <p className="text-sm text-gray-600">更新头像、昵称、邮箱和密码</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="card-body space-y-6">
+                  <div className="flex items-center space-x-4">
+                    <div className="h-16 w-16 rounded-full bg-gray-200 overflow-hidden flex items-center justify-center text-gray-700 text-xl font-semibold">
+                      {user?.email ? user.email.charAt(0).toUpperCase() : 'U'}
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      系统默认使用邮箱首字母作为头像（不支持上传）
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">昵称</label>
+                      <input defaultValue={user?.name} onBlur={async (e) => {
+                        try { await authService.updateProfile({ name: e.target.value }); useAuthStore.setState((s)=>({ ...s, user: { ...s.user!, name: e.target.value } })); toast.success('昵称已更新'); } catch { toast.error('更新失败'); }
+                      }} className="input" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">邮箱</label>
+                      <input defaultValue={user?.email} onBlur={async (e) => {
+                        const val = e.target.value; if (!val) return;
+                        try { await authService.updateProfile({ email: val }); useAuthStore.setState((s)=>({ ...s, user: { ...s.user!, email: val } })); toast.success('邮箱已更新'); } catch (err:any) { toast.error(err.response?.data?.error || '更新失败'); }
+                      }} className="input" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">修改密码</label>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <input type="password" placeholder="当前密码" value={passwords.currentPassword} onChange={(e)=>setPasswords({...passwords, currentPassword: e.target.value})} className="input" />
+                      <input type="password" placeholder="新密码" value={passwords.newPassword} onChange={(e)=>setPasswords({...passwords, newPassword: e.target.value})} className="input" />
+                      <button type="button" disabled={pwChanging} onClick={async()=>{ try { setPwChanging(true); await authService.changePassword(passwords); setPasswords({ currentPassword: '', newPassword: ''}); toast.success('密码已更新'); } catch(err:any){ toast.error(err.response?.data?.error || '修改失败'); } finally { setPwChanging(false);} }} className="btn btn-secondary">{pwChanging ? '提交中...' : '更新密码'}</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">通知邮箱（逗号分隔）</label>
+                    <input
+                      placeholder="example1@mail.com, example2@mail.com"
+                      className="input"
+                      value={notifyEmails}
+                      onChange={(e)=>setNotifyEmails(e.target.value)}
+                      onBlur={async (e) => {
+                        try {
+                          await settingsService.updateSettings({ notificationEmails: e.target.value });
+                          toast.success('通知邮箱已保存');
+                        } catch {
+                          toast.error('保存失败');
+                        }
+                      }}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">用于接收网站完成通知的邮箱列表</p>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
           
           {/* AI设置标签 */}
           {activeTab === 'ai' && (
@@ -508,145 +588,8 @@ export const Settings: React.FC = () => {
             </>
           )}
 
-          {/* 通知设置标签 */}
-          {activeTab === 'notifications' && (
-            <div className="card">
-              <div className="card-header">
-                <div className="flex items-center">
-                  <Bell className="h-5 w-5 text-gray-600 mr-3" />
-                  <div>
-                    <h2 className="text-lg font-semibold text-gray-900">通知设置</h2>
-                    <p className="text-sm text-gray-600">管理您接收的通知类型</p>
-                  </div>
-                </div>
-              </div>
-              <div className="card-body space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm font-medium text-gray-700">邮件通知</label>
-                    <p className="text-xs text-gray-500">接收重要系统通知和更新</p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      {...register('emailNotifications')}
-                      type="checkbox"
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                </div>
-                
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm font-medium text-gray-700">系统通知</label>
-                    <p className="text-xs text-gray-500">显示浏览器内通知</p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      {...register('systemNotifications')}
-                      type="checkbox"
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 安全设置标签 */}
-          {activeTab === 'security' && (
-            <div className="card">
-              <div className="card-header">
-                <div className="flex items-center">
-                  <Shield className="h-5 w-5 text-gray-600 mr-3" />
-                  <div>
-                    <h2 className="text-lg font-semibold text-gray-900">安全设置</h2>
-                    <p className="text-sm text-gray-600">保护您的账户安全</p>
-                  </div>
-                </div>
-              </div>
-              <div className="card-body space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-sm font-medium text-gray-700">双因素认证</label>
-                    <p className="text-xs text-gray-500">通过短信或认证应用增强账户安全</p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      {...register('twoFactorEnabled')}
-                      type="checkbox"
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    密码过期天数
-                  </label>
-                  <select {...register('passwordExpiry')} className="input max-w-xs">
-                    <option value={30}>30天</option>
-                    <option value={60}>60天</option>
-                    <option value={90}>90天</option>
-                    <option value={180}>180天</option>
-                    <option value={365}>365天</option>
-                    <option value={0}>永不过期</option>
-                  </select>
-                  <p className="mt-1 text-xs text-gray-500">设置密码的有效期限</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 界面设置标签 */}
-          {activeTab === 'interface' && (
-            <div className="card">
-              <div className="card-header">
-                <div className="flex items-center">
-                  <Palette className="h-5 w-5 text-gray-600 mr-3" />
-                  <div>
-                    <h2 className="text-lg font-semibold text-gray-900">界面设置</h2>
-                    <p className="text-sm text-gray-600">自定义界面外观和语言</p>
-                  </div>
-                </div>
-              </div>
-              <div className="card-body space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">主题</label>
-                    <select {...register('theme')} className="input">
-                      <option value="light">浅色主题</option>
-                      <option value="dark">深色主题</option>
-                      <option value="system">跟随系统</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">语言</label>
-                    <select {...register('language')} className="input">
-                      <option value="zh">中文</option>
-                      <option value="en">English</option>
-                    </select>
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">时区</label>
-                  <select {...register('timezone')} className="input">
-                    <option value="Asia/Shanghai">北京时间 (GMT+8)</option>
-                    <option value="Asia/Tokyo">东京时间 (GMT+9)</option>
-                    <option value="America/New_York">纽约时间 (GMT-5)</option>
-                    <option value="Europe/London">伦敦时间 (GMT+0)</option>
-                    <option value="UTC">UTC</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 用户管理标签 - 仅管理员可见 */}
+          {/* 用户管理标签 - 管理员/超管 */}
+          
           {activeTab === 'users' && isAdmin && (
             <div className="card">
               <div className="card-header">
@@ -658,33 +601,99 @@ export const Settings: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <div className="card-body">
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <p className="text-sm text-yellow-800">
-                    <strong>开发中：</strong>用户管理功能正在开发中，敬请期待。
-                  </p>
+              <div className="card-body space-y-4">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">用户</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">邮箱</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">角色</th>
+                        {isSuperAdmin && <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">权限</th>}
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {users.map(u => (
+                        <tr key={u.id}>
+                          <td className="px-4 py-2 text-sm">{u.name}</td>
+                          <td className="px-4 py-2 text-sm">{u.email}</td>
+                          <td className="px-4 py-2 text-sm">
+                            <select disabled={!isSuperAdmin} defaultValue={u.role} onChange={async (e)=>{ try { await adminService.updateUserRole(u.id, e.target.value as any); toast.success('角色已更新'); loadUsers(); } catch{ toast.error('更新失败'); }}} className="input">
+                              <option value="user">用户</option>
+                              <option value="admin">管理员</option>
+                              <option value="super_admin">超级管理员</option>
+                            </select>
+                          </td>
+                          {isSuperAdmin && (
+                            <td className="px-4 py-2 text-sm">
+                              <details>
+                                <summary className="cursor-pointer text-blue-600">设置权限</summary>
+                                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                                  {permDefs.map(def => (
+                                    <label key={def.key} className="flex items-center space-x-2">
+                                      <input type="checkbox" defaultChecked={false} onChange={async (e)=>{
+                                        try {
+                                          await adminService.updateUserPermissions(u.id, [{ permission: def.key, granted: e.target.checked }]);
+                                          toast.success('权限已更新');
+                                        } catch { toast.error('更新失败'); }
+                                      }} />
+                                      <span className="text-xs text-gray-700">{def.key}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </details>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
           )}
 
-          {/* 系统管理标签 - 仅管理员可见 */}
-          {activeTab === 'system' && isAdmin && (
+          {/* 邮件设置 - 管理员可见 */}
+          {activeTab === 'email' && isAdmin && (
             <div className="card">
               <div className="card-header">
                 <div className="flex items-center">
-                  <Server className="h-5 w-5 text-gray-600 mr-3" />
+                  <Mail className="h-5 w-5 text-gray-600 mr-3" />
                   <div>
-                    <h2 className="text-lg font-semibold text-gray-900">系统管理</h2>
-                    <p className="text-sm text-gray-600">系统配置和维护</p>
+                    <h2 className="text-lg font-semibold text-gray-900">邮件通知设置</h2>
+                    <p className="text-sm text-gray-600">配置SMTP用于系统邮件通知</p>
                   </div>
                 </div>
               </div>
-              <div className="card-body">
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <p className="text-sm text-yellow-800">
-                    <strong>开发中：</strong>系统管理功能正在开发中，敬请期待。
-                  </p>
+              <div className="card-body space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">SMTP Host</label>
+                    <input className="input" value={emailSettings?.smtp_host || ''} onChange={(e)=>setEmailSettings(es=> es ? { ...es, smtp_host: e.target.value } : es)} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">SMTP Port</label>
+                    <input className="input" value={emailSettings?.smtp_port || ''} onChange={(e)=>setEmailSettings(es=> es ? { ...es, smtp_port: e.target.value } : es)} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">SMTP User</label>
+                    <input className="input" value={emailSettings?.smtp_user || ''} onChange={(e)=>setEmailSettings(es=> es ? { ...es, smtp_user: e.target.value } : es)} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">SMTP Password</label>
+                    <input type="password" className="input" value={emailSettings?.smtp_pass || ''} onChange={(e)=>setEmailSettings(es=> es ? { ...es, smtp_pass: e.target.value } : es)} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">发件人邮箱</label>
+                    <input className="input" value={emailSettings?.smtp_from || ''} onChange={(e)=>setEmailSettings(es=> es ? { ...es, smtp_from: e.target.value } : es)} />
+                  </div>
+                  <div className="flex items-center space-x-2 mt-6">
+                    <input type="checkbox" checked={!!emailSettings?.smtp_enabled} onChange={(e)=>setEmailSettings(es=> es ? { ...es, smtp_enabled: e.target.checked } : es)} />
+                    <span className="text-sm">启用邮件发送</span>
+                  </div>
+                </div>
+                <div>
+                  <button type="button" className="btn btn-primary" onClick={async()=>{ try { if (!emailSettings) return; await adminService.updateEmailSettings(emailSettings); toast.success('保存成功'); } catch { toast.error('保存失败'); } }}>保存邮件设置</button>
                 </div>
               </div>
             </div>

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { LoadingSpinner } from '../components/LoadingSpinner';
-import { deploymentService, websiteService } from '../services/api';
+import { deploymentService, websiteService, notificationService } from '../services/api';
 
 interface Website {
   id: string;
@@ -89,6 +89,15 @@ export const DeploymentManagement: React.FC = () => {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success('已复制到剪贴板');
+  };
+
+  const sendNotifyEmail = async (website: Website) => {
+    try {
+      const resp = await notificationService.sendWebsiteComplete(website.id);
+      toast.success('通知邮件已发送');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || '发送通知失败');
+    }
   };
 
   const getStatusIcon = (status: string) => {
@@ -271,6 +280,14 @@ export const DeploymentManagement: React.FC = () => {
                                 '部署'
                               )}
                             </button>
+                            {website.status === 'deployed' && (
+                              <button
+                                onClick={() => sendNotifyEmail(website)}
+                                className="btn btn-sm btn-secondary"
+                              >
+                                发送通知邮件
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

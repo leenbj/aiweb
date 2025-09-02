@@ -536,7 +536,7 @@ router.post('/chat-stream', authenticate, async (req: any, res: Response) => {
       'Access-Control-Allow-Headers': 'Cache-Control'
     });
 
-    // 根据模式获取用户的提示词
+    // 根据模式获取用户的提示词（优先使用设置页面中的提示词）
     const systemPrompt = await getUserPromptByMode(userId, mode as 'chat' | 'generate' | 'edit');
     
     // 构建对话消息数组
@@ -559,36 +559,128 @@ router.post('/chat-stream', authenticate, async (req: any, res: Response) => {
 
       if (userId) {
         const { provider, settings } = await aiService.getUserProvider(userId);
-        const customPrompt = settings?.systemPrompt;
+        // 对话场景明确使用“对话聊天提示词”，不要被系统通用提示词覆盖
+        const customPrompt = systemPrompt;
         const model = aiService.getModelFromSettings(settings);
-        
+        let fullResponse = '';
+        let chunkIndex = 0;
 
-        
         if (provider.chatStream) {
-
           await provider.chatStream(messages, (chunk: string) => {
+            fullResponse += chunk;
+            chunkIndex++;
             res.write(`data: ${JSON.stringify({ 
               type: 'chunk', 
               content: chunk, 
               mode: mode,
-              hasCustomPrompt: !!systemPrompt
+              hasCustomPrompt: !!systemPrompt,
+              chunkIndex
             })}\n\n`);
           }, userId, customPrompt, model);
         } else if (provider.chat) {
-          // 如果不支持流式，降级为普通chat
+          // 如果不支持流式，降级为普通chat：用chunk事件输出，保持后续续写能力
           const result = await provider.chat(messages, userId, customPrompt, model);
-          res.write(`data: ${JSON.stringify({ type: 'complete', content: result })}\n\n`);
+          fullResponse += result || '';
+          res.write(`data: ${JSON.stringify({ type: 'chunk', content: result, mode: mode, hasCustomPrompt: !!systemPrompt, chunkIndex: ++chunkIndex })}\n\n`);
         } else {
           throw new Error('Provider does not support chat or chatStream');
         }
+
+        // 自动续写直到完整HTML（若本轮含HTML但未闭合）
+        try {
+          const hasStarted = /```html|<!DOCTYPE\s+html|<html|<head|<body/i.test(fullResponse);
+          let currentHtml = extractPureHtmlFromResponse(fullResponse) || '';
+          let isComplete = /<\/html>/i.test(currentHtml) || /<\/html>/i.test(fullResponse);
+          const MAX_FOLLOWUPS = 10; // 进一步提高续写上限
+          let followups = 0;
+          let lastHtmlLength = currentHtml.length;
+
+          while (hasStarted && !isComplete && followups < MAX_FOLLOWUPS) {
+            followups++;
+            const continuationPrompt =
+              '继续输出刚才未完成的HTML网页代码，从中断处接着往后输出，直到包含完整的</html>结束标签为止。严格要求：只输出代码，不要任何说明或前后缀；不要使用```html或```围栏；不要重复已输出的任何部分。';
+
+            const followupMessages = [
+              ...messages,
+              { role: 'assistant' as const, content: fullResponse },
+              { role: 'user' as const, content: continuationPrompt }
+            ];
+
+            if (provider.chat) {
+              const more = await provider.chat(followupMessages, userId, customPrompt, model);
+              const addition = more || '';
+              const parts = addition.match(/[\s\S]{1,512}/g) || [addition];
+              for (const part of parts) {
+                fullResponse += part;
+                chunkIndex++;
+                res.write(`data: ${JSON.stringify({ type: 'chunk', content: part, mode: mode, chunkIndex })}\n\n`);
+              }
+            } else if (provider.chatStream) {
+              await provider.chatStream(
+                followupMessages,
+                (chunk: string) => {
+                  fullResponse += chunk;
+                  chunkIndex++;
+                  res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk, mode: mode, chunkIndex })}\n\n`);
+                },
+                userId,
+                customPrompt,
+                model
+              );
+            } else {
+              break;
+            }
+
+            currentHtml = extractPureHtmlFromResponse(fullResponse) || '';
+            isComplete = /<\/html>/i.test(currentHtml) || /<\/html>/i.test(fullResponse);
+            if (currentHtml.length <= lastHtmlLength && !isComplete) {
+              logger.warn('chat-stream 自动续写无进展，提前结束', { followups, htmlLen: currentHtml.length, lastHtmlLength });
+              break;
+            }
+            lastHtmlLength = currentHtml.length;
+          }
+        } catch (ensureErr) {
+          logger.warn('chat-stream 自动续写完整HTML出现问题：', ensureErr);
+        }
+
+        // 尾部兜底合并：若仍未闭合，追加必要的收尾标签
+        try {
+          const hasHtmlOpen = /<html[^>]*>/i.test(fullResponse);
+          const hasDoctype = /<!DOCTYPE\s+html>/i.test(fullResponse);
+          const hasBodyOpen = /<body[^>]*>/i.test(fullResponse);
+          const hasHtmlClose = /<\/html>/i.test(fullResponse);
+          const hasBodyClose = /<\/body>/i.test(fullResponse);
+
+          let tail = '';
+          if (hasBodyOpen && !hasBodyClose) tail += '</body>';
+          if (hasHtmlOpen && !hasHtmlClose) tail += '</html>';
+
+          if (!hasHtmlOpen) {
+            const skeleton = `${hasDoctype ? '' : '<!DOCTYPE html>\n'}<html lang="zh-CN">\n<head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>AI Generated</title></head>\n<body>\n${fullResponse}\n</body>\n</html>`;
+            fullResponse += skeleton;
+            chunkIndex++;
+            res.write(`data: ${JSON.stringify({ type: 'chunk', content: skeleton, mode: mode, chunkIndex })}\n\n`);
+          } else if (tail) {
+            fullResponse += tail;
+            chunkIndex++;
+            res.write(`data: ${JSON.stringify({ type: 'chunk', content: tail, mode: mode, chunkIndex })}\n\n`);
+          }
+        } catch (tailErr) {
+          logger.warn('chat-stream 尾部兜底合并失败：', tailErr);
+        }
       } else {
         if (aiService.provider.chatStream) {
+          let fullResponse = '';
+          let chunkIndex = 0;
           await aiService.provider.chatStream(messages, (chunk: string) => {
-            res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+            fullResponse += chunk;
+            chunkIndex++;
+            res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk, chunkIndex })}\n\n`);
           });
+          // 非登录态兜底：尝试一次完整性检查，但不做续写
         } else if (aiService.provider.chat) {
           const result = await aiService.provider.chat(messages);
-          res.write(`data: ${JSON.stringify({ type: 'complete', content: result })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: 'chunk', content: result, chunkIndex: 1 })}\n\n`);
         } else {
           throw new Error('Default provider does not support chat or chatStream');
         }
@@ -621,20 +713,14 @@ router.post('/chat', authenticate, async (req: any, res: Response) => {
       return res.status(400).json({ success: false, error: 'Message is required' });
     }
 
+    // 使用设置页面中的“对话聊天提示词”作为系统提示
+    const chatSystemPrompt = await getUserPromptByMode(userId, 'chat');
+
     // 构建对话消息数组
     const messages = [
       {
         role: 'system' as const,
-        content: `你是一个专业的网站需求分析师和AI助手。你的任务是与用户进行友好对话，了解他们的网站需求。
-
-对话原则：
-1. 友好、专业、有帮助
-2. 逐步引导用户提供网站需求信息
-3. 询问关键信息：网站类型、功能需求、设计风格、目标用户等
-4. 当收集到足够信息时，总结需求并询问是否开始生成
-5. 不要直接生成代码，只负责需求收集和确认
-
-请根据用户消息进行自然对话。`
+        content: chatSystemPrompt
       },
       ...conversationHistory.map((msg: any) => ({
         role: msg.role,

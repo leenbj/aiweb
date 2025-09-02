@@ -571,17 +571,30 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
         const chunkContent = event.data.content;
         const fullContent = event.data.fullContent;
 
-        // 同时更新代码编辑器和对话框（适用于所有模式）
-        if (onCodeUpdate && fullContent) {
-          onCodeUpdate(fullContent);
+        // 同步右侧代码模块：仅在提取到纯净HTML时更新
+        // 这可以避免把```html或“html”语言标记传递到代码模块
+        if (onCodeUpdate) {
+          const pure = extractPureHtml(fullContent || chunkContent || '');
+          if (pure) onCodeUpdate(pure);
         }
 
-        // 在对话框中显示流式内容
+        // 在对话框中显示流式内容（过滤HTML/代码围栏，避免代码直接出现在对话）
         if (messageId) {
           flushSync(() => {
             setMessages(prev => prev.map(msg =>
               msg.id === messageId
-                ? { ...msg, content: fullContent || msg.content + chunkContent }
+                ? (() => {
+                    const raw = (fullContent ?? (msg.content + (chunkContent || '')));
+                    // 清理：移除```html ... ```与完整<html>文档，替换为提示文本
+                    const cleaned = raw
+                      .replace(/```html\s*[\s\S]*?\s*```/gi, '🎨 网页代码已同步到代码编辑器')
+                      .replace(/(<!DOCTYPE\s+html[\s\S]*?<\/html>)/gi, '🎨 完整网页代码已同步到代码编辑器')
+                      .replace(/(<html[\s\S]*?<\/html>)/gi, '🎨 网页代码已同步到代码编辑器')
+                      // 避免残留的起始/结束围栏或孤立```影响排版
+                      .replace(/(^|\n)```\w*\s*$/g, '$1')
+                      .replace(/(^|\n)```\s*$/g, '$1');
+                    return { ...msg, content: cleaned };
+                  })()
                 : msg
             ));
           });
@@ -1124,8 +1137,8 @@ export default function AIAssistant({ onCodeUpdate, onGenerationStart, onGenerat
 
 
 
-      {/* 消息列表 */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* 消息列表：空态不滚动，避免默认可拖动 */}
+      <div className={`flex-1 min-h-0 ${messages.length === 0 ? 'overflow-hidden' : 'overflow-y-auto'} p-4 space-y-4 chat-scroll`}>
         <AnimatePresence>
           {messages.map((message) => (
             <motion.div

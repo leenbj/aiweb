@@ -145,9 +145,9 @@ export function AIEditorWithNewUI() {
   }
 
   return (
-    <div className="h-full flex bg-white">
+    <div className="h-full min-h-0 flex bg-white">
       {/* Left Panel - AI Chat */}
-      <div className="w-96 border-r border-gray-200 flex flex-col">
+      <div className="w-96 border-r border-gray-200 flex flex-col min-h-0">
         <AIAssistantModern
           onCodeUpdate={handleCodeUpdate}
           onGenerationStart={handleGenerationStart}
@@ -162,10 +162,10 @@ export function AIEditorWithNewUI() {
       </div>
 
       {/* Right Panel - Preview/Code */}
-      <div className="flex-1 flex flex-col">
-        {/* Header without background */}
-        <div className="border-b border-gray-200 p-4">
-            <div className="flex items-center justify-between">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        {/* Header aligned with AI panel height */}
+        <div className="border-b border-gray-200 h-[72px] p-4 flex items-center">
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center w-full">
               <div className="flex items-center gap-4">
                 <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as ViewMode)} className="w-auto">
                   <TabsList>
@@ -181,64 +181,68 @@ export function AIEditorWithNewUI() {
                 </Tabs>
               </div>
 
-              <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 border border-gray-200 rounded-lg p-1">
-                <Button
-                  variant={deviceMode === 'desktop' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setDeviceMode('desktop')}
-                  className="h-8 w-8 p-0"
-                >
-                  <Monitor className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant={deviceMode === 'tablet' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setDeviceMode('tablet')}
-                  className="h-8 w-8 p-0"
-                >
-                  <Tablet className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant={deviceMode === 'mobile' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setDeviceMode('mobile')}
-                  className="h-8 w-8 p-0"
-                >
-                  <Smartphone className="w-4 h-4" />
-                </Button>
+              {/* 中间：页面尺寸选择（居中对齐） */}
+              <div className="justify-self-center">
+                <div className="flex items-center gap-1 border border-gray-200 rounded-lg p-1">
+                  <Button
+                    variant={deviceMode === 'desktop' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setDeviceMode('desktop')}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Monitor className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant={deviceMode === 'tablet' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setDeviceMode('tablet')}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Tablet className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant={deviceMode === 'mobile' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setDeviceMode('mobile')}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Smartphone className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
-              
-              <Button variant="outline" size="sm" className="border-gray-200">
-                <Download className="w-4 h-4 mr-2" />
-                下载
-              </Button>
-              <Button 
-                onClick={handleSave} 
-                disabled={isUpdating} 
-                size="sm"
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                {isUpdating ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    保存中...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4 mr-2" />
-                    保存
-                  </>
-                )}
-              </Button>
+
+              {/* 右侧：下载/保存（靠右对齐） */}
+              <div className="flex items-center gap-2 justify-self-end">
+                <Button variant="outline" size="sm" className="border-gray-200">
+                  <Download className="w-4 h-4 mr-2" />
+                  下载
+                </Button>
+                <Button 
+                  onClick={handleSave} 
+                  disabled={isUpdating} 
+                  size="sm"
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  {isUpdating ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      保存中...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      保存
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
         </div>
 
-        <div className="flex-1 bg-white">
+        <div className="flex-1 min-h-0 overflow-hidden bg-white">
           <Tabs value={viewMode} className="h-full">
-            <TabsContent value="preview" className="h-full p-4 m-0">
-              <div className="h-full flex items-center justify-center">
+            <TabsContent value="preview" className="h-full p-0 m-0">
+              <div className="h-full w-full overflow-hidden">
                 {isGenerating ? (
                   // 生成时显示动画
                   <GenerationAnimation />
@@ -258,7 +262,7 @@ export function AIEditorWithNewUI() {
               </div>
             </TabsContent>
             <TabsContent value="code" className="h-full p-4 m-0">
-              <div className="h-full">
+              <div className="h-full overflow-auto code-scroll">
                 {content ? (
                   // 有内容时显示代码编辑器
                   <div className="h-full border border-gray-200 rounded-lg overflow-hidden">

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthRequest } from './auth';
+import { prisma } from '../database';
 
 export enum UserRole {
   USER = 'user',
@@ -96,19 +97,35 @@ export const hasPermission = (userRole: string, permission: keyof typeof PERMISS
 
 // 权限检查中间件生成器
 export const requirePermission = (permission: keyof typeof PERMISSIONS) => {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.user) {
-      return res.status(401).json({ error: '未授权访问' });
-    }
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: '未授权访问' });
+      }
 
-    if (!hasPermission(req.user.role, permission)) {
-      return res.status(403).json({ 
-        error: '权限不足',
-        permission,
-        userRole: req.user.role
+      // Check DB overrides first
+      const override = await prisma.userPermission.findUnique({
+        where: {
+          userId_permission: {
+            userId: req.user.id,
+            permission,
+          },
+        },
       });
-    }
 
-    next();
+      if (override) {
+        if (override.granted) return next();
+        return res.status(403).json({ success: false, error: '权限不足', permission, userRole: req.user.role });
+      }
+
+      // Fallback to role-based permissions
+      if (!hasPermission(req.user.role, permission)) {
+        return res.status(403).json({ success: false, error: '权限不足', permission, userRole: req.user.role });
+      }
+
+      next();
+    } catch (err) {
+      return res.status(500).json({ success: false, error: '权限校验失败' });
+    }
   };
 };

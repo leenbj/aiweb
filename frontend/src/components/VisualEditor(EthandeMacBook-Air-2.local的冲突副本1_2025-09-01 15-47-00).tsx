@@ -244,8 +244,8 @@ export const VisualEditor: React.FC<VisualEditorProps> = ({
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.2 }}
               style={{
-                width: getDeviceWidth(),
-                height: getDeviceHeight(),
+                width: '100%',
+                height: '100%',
                 maxWidth: '100%',
                 maxHeight: '100%',
               }}
@@ -340,8 +340,13 @@ export const VisualEditor: React.FC<VisualEditorProps> = ({
                 value={content}
                 onChange={handleContentChange}
                 language="html"
+                theme="traditional"
                 typewriterMode={isGenerating}
                 typewriterSpeed={25}
+                readOnly={false}
+                minimap={true}
+                lineNumbers="on"
+                height="100%"
               />
             </div>
           </div>

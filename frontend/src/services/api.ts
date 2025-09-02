@@ -107,6 +107,8 @@ export const authService = {
   
   changePassword: (data: { currentPassword: string; newPassword: string }) =>
     apiClient.put<{ message: string }>('/auth/password', data),
+  updateAvatar: (avatarUrl: string) =>
+    apiClient.put<User>('/auth/profile', { avatarUrl }),
   
   setAuthHeader: (token: string) => apiClient.setAuthHeader(token),
   removeAuthHeader: () => apiClient.removeAuthHeader(),
@@ -613,11 +615,12 @@ export const tokenService = {
       providers: Array<{ provider: string; tokensUsed: number; costRmb: number }>;
     }>('/tokens/overview'),
 
-  getTrend: () =>
+  getTrend: (dimension: 'provider' | 'model' = 'provider') =>
     apiClient.get<{
-      trend: Array<{ date: string; provider: string; tokensUsed: number; costRmb: number }>;
+      trend: Array<{ date: string; provider?: string; model?: string; tokensUsed: number; costRmb: number }>;
       period: { startDate: string; endDate: string };
-    }>('/tokens/usage/trend'),
+      dimension: 'provider' | 'model';
+    }>(`/tokens/usage/trend?dimension=${dimension}`),
 
   getDailyUsage: (params: { date: string; provider?: string }) => {
     const queryParams = new URLSearchParams();
@@ -637,21 +640,45 @@ export const tokenService = {
     startDate: string; 
     endDate: string; 
     provider?: string; 
-    groupBy?: 'day' | 'hour' 
+    groupBy?: 'day' | 'hour',
+    dimension?: 'provider' | 'model'
   }) => {
     const queryParams = new URLSearchParams();
     queryParams.append('startDate', params.startDate);
     queryParams.append('endDate', params.endDate);
     if (params.provider) queryParams.append('provider', params.provider);
     if (params.groupBy) queryParams.append('groupBy', params.groupBy);
+    if (params.dimension) queryParams.append('dimension', params.dimension);
     
     return apiClient.get<{
-      usage: Array<{ date: string; hour?: number; provider: string; tokensUsed: number; costRmb: number }>;
+      usage: Array<{ date: string; hour?: number; provider?: string; model?: string; tokensUsed: number; costRmb: number }>;
       totals: { totalTokens: number; totalCost: number };
       period: { startDate: string; endDate: string };
       groupBy: string;
+      dimension: 'provider' | 'model';
     }>(`/tokens/usage/range?${queryParams.toString()}`);
   },
+};
+
+// Uploads service
+export const uploadsService = {
+  uploadFile: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    // Note: apiClient.post detects FormData
+    return apiClient.post<{ file: { url: string } }>('/uploads/file', formData);
+  },
+};
+
+// Admin service
+export const adminService = {
+  getUsers: () => apiClient.get<Array<{ id: string; name: string; email: string; role: string; isActive: boolean; avatarUrl?: string; createdAt: string }>>('/admin/users'),
+  updateUserRole: (id: string, role: 'user' | 'admin' | 'super_admin') => apiClient.put(`/admin/users/${id}/role`, { role }),
+  getPermissionDefs: () => apiClient.get<Array<{ key: string; roles: string[] }>>('/admin/permissions/definition'),
+  getUserPermissions: (id: string) => apiClient.get<Array<{ id: string; permission: string; granted: boolean }>>(`/admin/users/${id}/permissions`),
+  updateUserPermissions: (id: string, overrides: Array<{ permission: string; granted: boolean }>) => apiClient.put(`/admin/users/${id}/permissions`, { overrides }),
+  getEmailSettings: () => apiClient.get<{ smtp_host: string; smtp_port: string; smtp_user: string; smtp_pass: string; smtp_from: string; smtp_enabled: boolean }>(`/admin/email-settings`),
+  updateEmailSettings: (data: { smtp_host: string; smtp_port: string; smtp_user: string; smtp_pass: string; smtp_from: string; smtp_enabled: boolean }) => apiClient.put('/admin/email-settings', data),
 };
 
 // Screenshot service
@@ -670,3 +697,11 @@ export const screenshotService = {
 };
 
 export default apiClient;
+// Notification service
+export const notificationService = {
+  sendWebsiteComplete: (websiteId: string, toEmails?: string) =>
+    apiClient.post<{ recipients: string[]; websiteId: string; url: string }>(
+      '/notifications/email/website-complete',
+      { websiteId, toEmails }
+    ),
+};

@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Code,
   Settings,
+  BarChart3,
   Globe,
   Rocket,
   LogOut,
@@ -46,6 +47,12 @@ const navigation = [
     route: 'deploy' as Route,
     icon: Rocket,
     description: '发布和托管'
+  },
+  {
+    name: 'Token统计',
+    route: 'tokens' as Route,
+    icon: BarChart3,
+    description: 'Token消耗与费用'
   },
   {
     name: '设置',
@@ -196,8 +203,9 @@ export function DashboardSidebar({ isCollapsed, onToggle }: DashboardSidebarProp
               transition={{ duration: 0.2 }}
               className="flex justify-center"
             >
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-white" />
+              {/* 仅显示用户头像（邮箱首字母） - 使用简单 div 保证可见性 */}
+              <div className="h-8 w-8 rounded-full bg-primary-600 text-white flex items-center justify-center text-xs font-semibold">
+                {(user?.email || 'U').charAt(0).toUpperCase()}
               </div>
             </motion.div>
           ) : (
@@ -217,18 +225,9 @@ export function DashboardSidebar({ isCollapsed, onToggle }: DashboardSidebarProp
 
               {/* User Info */}
               <div className="flex items-center gap-3 p-3 rounded-lg bg-gray-100 border border-gray-200">
-                <Avatar
-                  variant="user"
-                  size="lg"
-                  showStatus={true}
-                  status="online"
-                  className="w-10 h-10 bg-black"
-                  style={{ backgroundColor: '#000000' }}
-                >
-                  <AvatarFallback variant="user" style={{ backgroundColor: '#000000', color: '#ffffff' }}>
-                    {user?.email?.charAt(0).toUpperCase() || 'U'}
-                  </AvatarFallback>
-                </Avatar>
+                <div className="h-10 w-10 rounded-full bg-primary-600 text-white flex items-center justify-center text-sm font-semibold shrink-0">
+                  {user?.email?.charAt(0).toUpperCase() || 'U'}
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{user?.name}</div>
                   <div className="text-xs text-muted-foreground truncate">{user?.email}</div>
@@ -239,36 +238,7 @@ export function DashboardSidebar({ isCollapsed, onToggle }: DashboardSidebarProp
           )}
         </AnimatePresence>
 
-        {/* Collapsed User Avatar */}
-        {isCollapsed && (
-          <TooltipProvider>
-            <Tooltip delayDuration={0}>
-              <TooltipTrigger asChild>
-                <div className="mt-4 flex justify-center cursor-pointer">
-                  <Avatar
-                    variant="user"
-                    size="md"
-                    showStatus={true}
-                    status="online"
-                    className="w-8 h-8 bg-black"
-                    style={{ backgroundColor: '#000000' }}
-                  >
-                    <AvatarFallback variant="user" style={{ backgroundColor: '#000000', color: '#ffffff' }}>
-                      {user?.email?.charAt(0).toUpperCase() || 'U'}
-                    </AvatarFallback>
-                  </Avatar>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="right" className="ml-2">
-                <div>
-                  <div className="font-medium">{user?.name}</div>
-                  <div className="text-xs text-muted-foreground">{user?.email}</div>
-                  <div className="mt-1">{user?.plan && getPlanBadge(user.plan)}</div>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
+        {/* 收起时不再单独显示Logo或重复头像 */}
       </div>
 
       {/* Navigation */}

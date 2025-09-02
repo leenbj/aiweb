@@ -422,15 +422,13 @@ export function AIEditorFull() {
 
         <div className="flex-1 bg-white">
           <Tabs value={viewMode} className="h-full">
-            <TabsContent value="preview" className="h-full p-4 m-0">
-              <div className="h-full flex items-center justify-center">
-                <div className={`bg-white rounded-lg shadow-lg overflow-hidden transition-all duration-300 ${getViewportClasses()}`}>
-                  <iframe
-                    srcDoc={content}
-                    className="w-full h-full border-0"
-                    title="网站预览"
-                  />
-                </div>
+            <TabsContent value="preview" className="h-full p-0 m-0">
+              <div className="h-full w-full">
+                <iframe
+                  srcDoc={content}
+                  className="w-full h-full border-0"
+                  title="网站预览"
+                />
               </div>
             </TabsContent>
             <TabsContent value="code" className="h-full p-4 m-0">

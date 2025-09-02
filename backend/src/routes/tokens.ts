@@ -14,6 +14,7 @@ const dateRangeSchema = Joi.object({
   endDate: Joi.date().min(Joi.ref('startDate')).required(),
   provider: Joi.string().valid('deepseek', 'openai', 'anthropic').optional(),
   groupBy: Joi.string().valid('day', 'hour').default('day'),
+  dimension: Joi.string().valid('provider', 'model').default('provider'),
 });
 
 const singleDateSchema = Joi.object({
@@ -32,7 +33,7 @@ router.get('/usage/range', authenticate, async (req: any, res: Response) => {
       });
     }
 
-    const { startDate, endDate, provider, groupBy } = value;
+    const { startDate, endDate, provider, groupBy, dimension } = value;
     const userId = req.user!.id;
 
     // 构建查询条件
@@ -49,33 +50,13 @@ router.get('/usage/range', authenticate, async (req: any, res: Response) => {
     }
 
     let groupByClause: any;
-    let selectClause: any;
 
     if (groupBy === 'hour') {
       // 按小时分组
-      groupByClause = ['date', 'hour', 'provider'];
-      selectClause = {
-        date: true,
-        hour: true,
-        provider: true,
-        model: true,
-        operation: true,
-        _sum: {
-          tokensUsed: true,
-          costRmb: true,
-        },
-      };
+      groupByClause = ['date', 'hour', dimension];
     } else {
       // 按天分组
-      groupByClause = ['date', 'provider'];
-      selectClause = {
-        date: true,
-        provider: true,
-        _sum: {
-          tokensUsed: true,
-          costRmb: true,
-        },
-      };
+      groupByClause = ['date', dimension];
     }
 
     const usage = await prisma.tokenUsage.groupBy({
@@ -95,7 +76,8 @@ router.get('/usage/range', authenticate, async (req: any, res: Response) => {
     const formattedUsage = usage.map((item: any) => ({
       date: item.date,
       hour: item.hour,
-      provider: item.provider,
+      provider: dimension === 'provider' ? item.provider : undefined,
+      model: dimension === 'model' ? item.model : undefined,
       tokensUsed: item._sum.tokensUsed || 0,
       costRmb: parseFloat(item._sum.costRmb?.toString() || '0'),
     }));
@@ -113,6 +95,7 @@ router.get('/usage/range', authenticate, async (req: any, res: Response) => {
         totals,
         period: { startDate, endDate },
         groupBy,
+        dimension,
       },
     });
   } catch (error) {
@@ -235,9 +218,10 @@ router.get('/usage/trend', authenticate, async (req: any, res: Response) => {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(endDate.getDate() - 7);
+    const dimension = req.query.dimension === 'model' ? 'model' : 'provider';
 
     const usage = await prisma.tokenUsage.groupBy({
-      by: ['date', 'provider'],
+      by: ['date', dimension],
       where: {
         userId,
         date: {
@@ -251,14 +235,14 @@ router.get('/usage/trend', authenticate, async (req: any, res: Response) => {
       },
       orderBy: [
         { date: 'asc' },
-        { provider: 'asc' },
       ],
     });
 
     // 格式化为前端需要的数据结构
     const trendData = usage.map((item: any) => ({
       date: item.date.toISOString().split('T')[0],
-      provider: item.provider,
+      provider: dimension === 'provider' ? item.provider : undefined,
+      model: dimension === 'model' ? item.model : undefined,
       tokensUsed: item._sum.tokensUsed || 0,
       costRmb: parseFloat(item._sum.costRmb?.toString() || '0'),
     }));
@@ -271,6 +255,7 @@ router.get('/usage/trend', authenticate, async (req: any, res: Response) => {
           startDate: startDate.toISOString().split('T')[0],
           endDate: endDate.toISOString().split('T')[0],
         },
+        dimension,
       },
     });
   } catch (error) {
