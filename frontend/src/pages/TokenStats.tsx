@@ -22,7 +22,7 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 interface TokenUsageData {
   date: string;
   hour?: number;
-  provider: string;
+  provider?: string;
   tokensUsed: number;
   costRmb: number;
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { Button } from './ui/Button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
@@ -10,6 +10,7 @@ import { useWebsiteStore } from '../store/websiteStore';
 import { useRouter } from '../lib/router';
 import { toast } from 'react-hot-toast';
 import { Website } from '@/shared/types';
+import { uploadsService, aiService } from '@/services/api';
 import {
   Code,
   Eye,
@@ -25,16 +26,25 @@ type ViewMode = 'preview' | 'code';
 type DeviceMode = 'desktop' | 'tablet' | 'mobile';
 
 export function AIEditorWithNewUI() {
-  // Get current URL to extract website ID
+  // 获取网站ID：优先URL /editor/[id]，否则从localStorage回退
   const currentPath = window.location.pathname;
   const pathParts = currentPath.split('/');
-  const id = pathParts[2]; // /editor/[id] format
+  const idFromPath = pathParts[2];
+  const id = idFromPath || (typeof window !== 'undefined' ? localStorage.getItem('editing-website-id') || '' : '');
   
   const { navigate } = useRouter();
   const [content, setContent] = useState('');
+  const [projectTitle, setProjectTitle] = useState<string>('编号001-未命名');
+  const [initialChat, setInitialChat] = useState<Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string | Date }>>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<{progress: number, stage: string}>({progress: 0, stage: ''});
   const [isGenerating, setIsGenerating] = useState(false);
+  const [directEdit, setDirectEdit] = useState(false);
+  const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
+  const inputTimerRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // 移除悬浮代码窗口，改为对话内滚动展示，并实时同步到右侧代码模块
   
   // UI state
@@ -61,6 +71,36 @@ export function AIEditorWithNewUI() {
           setIsLoading(true);
           const website = await getWebsite(id);
           setContent(website.content || getDefaultHTML());
+          setProjectTitle(website.title || '编号001-未命名');
+          // 载入最新对话记录（如有）
+          try {
+            const convs = (website as any).conversations || [];
+            if (convs.length > 0) {
+              const convId = convs[0]?.id;
+              if (convId) {
+                const conv = await aiService.getConversation(convId);
+                const msgs = (conv.data?.data as any)?.messages || [];
+                const mapped = msgs
+                  .map((m: any) => {
+                    const role = String(m.role || '').toLowerCase();
+                    if (role !== 'user' && role !== 'assistant') return null;
+                    return { role, content: String(m.content || ''), timestamp: m.createdAt } as {
+                      role: 'user' | 'assistant';
+                      content: string;
+                      timestamp?: string | Date;
+                    };
+                  })
+                  .filter(Boolean) as Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string | Date }>;
+                setInitialChat(mapped);
+              } else {
+                setInitialChat([]);
+              }
+            } else {
+              setInitialChat([]);
+            }
+          } catch (e) {
+            setInitialChat([]);
+          }
         } catch (error) {
           toast.error('加载网站失败');
           navigate('dashboard');
@@ -71,6 +111,8 @@ export function AIEditorWithNewUI() {
         // New website
         setCurrentWebsite(null);
         setContent(getDefaultHTML());
+        setProjectTitle('编号001-未命名');
+        setInitialChat([]);
       }
     };
 
@@ -88,7 +130,7 @@ export function AIEditorWithNewUI() {
       } else {
         // Create new website
         const newWebsite = await createWebsite({
-          title: '新网站',
+          title: projectTitle || '新网站',
           description: '用AI网站构建器创建',
           domain: `new-website-${Date.now()}.com`,
         });
@@ -118,6 +160,97 @@ export function AIEditorWithNewUI() {
     console.log('AIEditor: Generation ended');
     setIsGenerating(false);
     setGenerationProgress({ progress: 100, stage: '生成完成' });
+  };
+
+  // 直改模式：对预览iframe注入可编辑与选择事件
+  useEffect(() => {
+    if (viewMode !== 'preview') return;
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    const enable = () => {
+      try {
+        const doc = iframe.contentDocument;
+        if (!doc) return;
+        // 开启可编辑
+        (doc.body as any).contentEditable = 'true';
+        (doc.body as any).style.caretColor = '#2563eb';
+        // 高亮被点击的图片
+        const onClick = (e: any) => {
+          const target = e.target as HTMLElement;
+          if (target && target.tagName === 'IMG') {
+            setSelectedImg(target as HTMLImageElement);
+            (target as HTMLImageElement).style.outline = '2px solid #22c55e';
+            setTimeout(() => { if (target) (target as HTMLImageElement).style.outline = ''; }, 1200);
+          }
+        };
+        // 监听文本编辑，节流同步到右侧代码
+        const onInput = () => {
+          if (inputTimerRef.current) window.clearTimeout(inputTimerRef.current);
+          inputTimerRef.current = window.setTimeout(() => {
+            try {
+              const html = doc.documentElement.outerHTML;
+              setContent(html);
+            } catch {}
+          }, 250) as unknown as number;
+        };
+        doc.addEventListener('click', onClick);
+        doc.addEventListener('input', onInput, true);
+
+        cleanupRef.current = () => {
+          try {
+            (doc.body as any).contentEditable = 'false';
+            doc.removeEventListener('click', onClick);
+            doc.removeEventListener('input', onInput, true);
+            if (inputTimerRef.current) window.clearTimeout(inputTimerRef.current);
+          } catch {}
+        };
+      } catch {}
+    };
+
+    if (directEdit) {
+      // 如果iframe已加载，则立即启用；否则等待load
+      if (iframe.contentDocument?.readyState === 'complete') enable();
+      else iframe.addEventListener('load', enable, { once: true });
+    } else {
+      cleanupRef.current?.();
+      cleanupRef.current = null;
+      setSelectedImg(null);
+    }
+
+    return () => {
+      cleanupRef.current?.();
+      cleanupRef.current = null;
+    };
+  }, [directEdit, viewMode]);
+
+  // 在视图从预览切换到代码时，同步一次iframe到content，确保代码视图拿到最新直改结果
+  useEffect(() => {
+    if (viewMode === 'code' && iframeRef.current?.contentDocument) {
+      try {
+        const html = iframeRef.current.contentDocument.documentElement.outerHTML;
+        if (html) setContent(html);
+      } catch {}
+    }
+  }, [viewMode]);
+
+  const handleReplaceImage = async (file: File) => {
+    if (!selectedImg) return;
+    try {
+      const res = await uploadsService.uploadFile(file);
+      const url = (res.data as any)?.data?.file?.url || (res.data as any)?.data?.url || '';
+      if (!url) return;
+      // 替换iframe中的图片
+      selectedImg.src = url;
+      // 同步回到content
+      const doc = iframeRef.current?.contentDocument;
+      if (doc) {
+        const html = doc.documentElement.outerHTML;
+        setContent(html);
+      }
+    } catch (e) {
+      // ignore
+    }
   };
 
   // 已移除悬浮代码生成窗口相关逻辑
@@ -153,10 +286,23 @@ export function AIEditorWithNewUI() {
           onGenerationStart={handleGenerationStart}
           onGenerationEnd={handleGenerationEnd}
           className="h-full"
-          projectName={currentWebsite?.title || `编号001-未命名`}
-          onProjectNameChange={(name) => {
-            // TODO: 实现项目名称更新逻辑
-            console.log('项目名称更新:', name);
+          projectName={projectTitle}
+          initialMessages={initialChat}
+          websiteId={id}
+          onProjectNameChange={async (name) => {
+            const finalName = (name || '').trim() || '未命名';
+            setProjectTitle(finalName);
+            if (currentWebsite) {
+              try {
+                await updateWebsite(currentWebsite.id, { title: finalName });
+                toast.success('项目名称已更新');
+              } catch {
+                toast.error('更新项目名称失败');
+              }
+            } else {
+              // 尚未创建网站，先更新本地标题，待首次保存时写入
+              toast.success('将于首次保存时一并保存项目名称');
+            }
           }}
         />
       </div>
@@ -179,6 +325,38 @@ export function AIEditorWithNewUI() {
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
+                {viewMode === 'preview' && (
+                  <>
+                    <Button variant={directEdit ? 'default' : 'outline'} size="sm" onClick={() => setDirectEdit(v => !v)}>
+                      {directEdit ? '退出直改' : '开启直改'}
+                    </Button>
+                    {directEdit && (
+                      <>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleReplaceImage(f);
+                            // reset input so the same file can be selected again
+                            if (e.target) (e.target as HTMLInputElement).value = '';
+                          }}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={!selectedImg}
+                          title={selectedImg ? '选择图片替换当前选中图片' : '请先点击页面中的图片以选中'}
+                        >
+                          替换选中图片
+                        </Button>
+                      </>
+                    )}
+                  </>
+                )}
               </div>
 
               {/* 中间：页面尺寸选择（居中对齐） */}
@@ -249,11 +427,7 @@ export function AIEditorWithNewUI() {
                 ) : content ? (
                   // 有内容时显示iframe预览 - 无外框
                   <div className={`w-full h-full transition-all duration-300`}>
-                    <iframe
-                      srcDoc={content}
-                      className="w-full h-full border-0"
-                      title="网站预览"
-                    />
+                    <iframe ref={iframeRef} srcDoc={content} className="w-full h-full border-0" title="网站预览" />
                   </div>
                 ) : (
                   // 无内容时显示静态占位符

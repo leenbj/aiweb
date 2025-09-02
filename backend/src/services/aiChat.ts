@@ -186,35 +186,38 @@ export class AIChatService {
           const hasBodyOpen = /<body[^>]*>/i.test(fullResponse);
           const hasHtmlClose = /<\/html>/i.test(fullResponse);
           const hasBodyClose = /<\/body>/i.test(fullResponse);
+          const shouldTail = !!htmlStr || hasHtmlOpen || hasBodyOpen || hasDoctype;
 
-          let tail = '';
-          if (hasBodyOpen && !hasBodyClose) tail += '</body>';
-          if (hasHtmlOpen && !hasHtmlClose) tail += '</html>';
+          if (shouldTail) {
+            let tail = '';
+            if (hasBodyOpen && !hasBodyClose) tail += '</body>';
+            if (hasHtmlOpen && !hasHtmlClose) tail += '</html>';
 
-          if (!hasHtmlOpen) {
-            // 若未显式<html>，但已有大量内容，构造最小包裹
-            const bodyContent = htmlStr || fullResponse;
-            const skeleton = `${hasDoctype ? '' : '<!DOCTYPE html>\n'}<html lang="zh-CN">\n<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>AI Generated</title></head>\n<body>\n${bodyContent}\n</body>\n</html>`;
-            const appendPart = skeleton;
-            // 作为单块追加
-            fullResponse += appendPart;
-            chunkCount++;
-            this.sendSSEEvent(response, 'chunk', {
-              content: appendPart,
-              fullContent: fullResponse,
-              chunkIndex: chunkCount,
-              timestamp: Date.now()
-            });
-          } else if (tail) {
-            // 仅追加必要的收尾
-            fullResponse += tail;
-            chunkCount++;
-            this.sendSSEEvent(response, 'chunk', {
-              content: tail,
-              fullContent: fullResponse,
-              chunkIndex: chunkCount,
-              timestamp: Date.now()
-            });
+            if (!hasHtmlOpen) {
+              // 若未显式<html>，但已有HTML信号，构造最小包裹
+              const bodyContent = htmlStr || fullResponse;
+              const skeleton = `${hasDoctype ? '' : '<!DOCTYPE html>\n'}<html lang="zh-CN">\n<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>AI Generated</title></head>\n<body>\n${bodyContent}\n</body>\n</html>`;
+              const appendPart = skeleton;
+              // 作为单块追加
+              fullResponse += appendPart;
+              chunkCount++;
+              this.sendSSEEvent(response, 'chunk', {
+                content: appendPart,
+                fullContent: fullResponse,
+                chunkIndex: chunkCount,
+                timestamp: Date.now()
+              });
+            } else if (tail) {
+              // 仅追加必要的收尾
+              fullResponse += tail;
+              chunkCount++;
+              this.sendSSEEvent(response, 'chunk', {
+                content: tail,
+                fullContent: fullResponse,
+                chunkIndex: chunkCount,
+                timestamp: Date.now()
+              });
+            }
           }
         } catch (tailErr) {
           logger.warn('尾部兜底合并失败，跳过:', tailErr);

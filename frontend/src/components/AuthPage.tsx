@@ -154,7 +154,7 @@ export function AuthPage({ mode }: AuthPageProps) {
                         placeholder="请输入您的姓名"
                         value={formData.name}
                         onChange={(e) => handleInputChange('name', e.target.value)}
-                        className="pl-10"
+                        className="pl-10 bg-white border-gray-300 focus:border-gray-400"
                         required
                       />
                     </div>
@@ -171,7 +171,7 @@ export function AuthPage({ mode }: AuthPageProps) {
                       placeholder="请输入您的邮箱"
                       value={formData.email}
                       onChange={(e) => handleInputChange('email', e.target.value)}
-                      className="pl-10"
+                      className="pl-10 bg-white border-gray-300 focus:border-gray-400"
                       required
                     />
                   </div>
@@ -187,7 +187,7 @@ export function AuthPage({ mode }: AuthPageProps) {
                       placeholder="请输入密码"
                       value={formData.password}
                       onChange={(e) => handleInputChange('password', e.target.value)}
-                      className="pl-10 pr-10"
+                      className="pl-10 pr-10 bg-white border-gray-300 focus:border-gray-400"
                       required
                     />
                     <button
@@ -216,7 +216,7 @@ export function AuthPage({ mode }: AuthPageProps) {
                         placeholder="请再次输入密码"
                         value={formData.confirmPassword}
                         onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                        className="pl-10"
+                        className="pl-10 bg-white border-gray-300 focus:border-gray-400"
                         required
                       />
                     </div>
@@ -235,7 +235,7 @@ export function AuthPage({ mode }: AuthPageProps) {
 
                 <Button
                   type="submit"
-                  className="w-full bg-gradient-to-r from-primary to-primary/80"
+                  className="w-full bg-primary hover:bg-primary/90"
                   disabled={isLoading}
                 >
                   {isLoading ? (

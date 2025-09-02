@@ -7,18 +7,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { deploymentService, websiteService, notificationService } from '../services/api';
-
-interface Website {
-  id: string;
-  domain: string;
-  title: string;
-  status: 'draft' | 'deployed' | 'failed';
-  sslStatus: 'pending' | 'active' | 'failed';
-  dnsStatus: 'pending' | 'active' | 'failed';
-  deployedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
+import type { Website as SharedWebsite } from '@/shared/types';
 
 interface Deployment {
   id: string;
@@ -37,12 +26,12 @@ interface Deployment {
 
 export const DeploymentManagement: React.FC = () => {
   const [activeTab, setActiveTab] = useState('websites');
-  const [websites, setWebsites] = useState<Website[]>([]);
+  const [websites, setWebsites] = useState<SharedWebsite[]>([]);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [loading, setLoading] = useState(true);
   const [deploying, setDeploying] = useState<string | null>(null);
   const [showDeployModal, setShowDeployModal] = useState(false);
-  const [selectedWebsite, setSelectedWebsite] = useState<Website | null>(null);
+  const [selectedWebsite, setSelectedWebsite] = useState<SharedWebsite | null>(null);
   const [domainInput, setDomainInput] = useState('');
 
   useEffect(() => {
@@ -50,17 +39,20 @@ export const DeploymentManagement: React.FC = () => {
   }, []);
 
   const loadData = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const [websitesResponse, deploymentsResponse] = await Promise.all([
-        websiteService.getWebsites(),
-        deploymentService.getDeployments()
-      ]);
-      
+      const websitesResponse = await websiteService.getWebsites();
       setWebsites(websitesResponse.data.data || []);
-      setDeployments(deploymentsResponse.data.data || []);
     } catch (error) {
-      toast.error('加载数据失败');
+      toast.error('网站列表加载失败');
+    }
+
+    // 部署记录为可选后端接口，若不存在则用空数组占位，不影响页面
+    try {
+      const deploymentsResponse = await deploymentService.getDeployments?.();
+      setDeployments((deploymentsResponse as any)?.data?.data || []);
+    } catch (error) {
+      setDeployments([]);
     } finally {
       setLoading(false);
     }
@@ -91,7 +83,7 @@ export const DeploymentManagement: React.FC = () => {
     toast.success('已复制到剪贴板');
   };
 
-  const sendNotifyEmail = async (website: Website) => {
+  const sendNotifyEmail = async (website: SharedWebsite) => {
     try {
       const resp = await notificationService.sendWebsiteComplete(website.id);
       toast.success('通知邮件已发送');
@@ -104,9 +96,11 @@ export const DeploymentManagement: React.FC = () => {
     switch (status) {
       case 'active':
       case 'success':
-      case 'deployed':
+      case 'deployed': // legacy
+      case 'published':
         return <Check className="h-4 w-4 text-green-500" />;
       case 'failed':
+      case 'error':
         return <X className="h-4 w-4 text-red-500" />;
       case 'pending':
       case 'deploying':
@@ -119,8 +113,10 @@ export const DeploymentManagement: React.FC = () => {
   const getStatusText = (status: string) => {
     const statusMap: { [key: string]: string } = {
       draft: '草稿',
+      published: '已发布',
       deployed: '已部署',
-      failed: '部署失败',
+      failed: '失败',
+      error: '错误',
       pending: '等待中',
       deploying: '部署中',
       success: '成功',
@@ -129,7 +125,7 @@ export const DeploymentManagement: React.FC = () => {
     return statusMap[status] || status;
   };
 
-  const openDeployModal = (website: Website) => {
+  const openDeployModal = (website: SharedWebsite) => {
     setSelectedWebsite(website);
     setDomainInput(website.domain || '');
     setShowDeployModal(true);
@@ -237,9 +233,37 @@ export const DeploymentManagement: React.FC = () => {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <div className="flex items-center space-x-2">
-                            {getStatusIcon(website.status)}
-                            <span className="text-sm text-gray-900">{getStatusText(website.status)}</span>
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center space-x-2">
+                              {getStatusIcon(website.status)}
+                              <span className="text-sm text-gray-900">{getStatusText(website.status)}</span>
+                            </div>
+                            <select
+                              className="text-xs border border-gray-300 rounded px-2 py-1"
+                              value={website.status === 'draft' ? 'offline' : (website.status === 'published' ? 'published' : website.status)}
+                              onChange={async (e)=>{
+                                const val = e.target.value;
+                                try {
+                                  if (val === 'published') {
+                                    if (!website.domain) { alert('请先配置域名'); return; }
+                                    await websiteService.updateWebsite(website.id, { status: 'published' as any });
+                                    await deploymentService.deployWebsite(website.id, website.domain);
+                                  } else if (val === 'offline') {
+                                    await websiteService.updateWebsite(website.id, { status: 'draft' as any });
+                                    try { await deploymentService.undeployWebsite(website.id); } catch {}
+                                  } else {
+                                    await websiteService.updateWebsite(website.id, { status: val as any });
+                                  }
+                                  await loadData();
+                                } catch {
+                                  // handled by store/toast generally
+                                }
+                              }}
+                            >
+                              <option value="draft">草稿</option>
+                              <option value="published">上线</option>
+                              <option value="offline">下线</option>
+                            </select>
                           </div>
                         </td>
                         <td className="px-6 py-4">
@@ -259,7 +283,7 @@ export const DeploymentManagement: React.FC = () => {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end space-x-2">
-                            {website.status === 'deployed' && (
+                            {website.status === 'published' && (
                               <a
                                 href={`https://${website.domain}`}
                                 target="_blank"
@@ -280,7 +304,7 @@ export const DeploymentManagement: React.FC = () => {
                                 '部署'
                               )}
                             </button>
-                            {website.status === 'deployed' && (
+                            {website.status === 'published' && (
                               <button
                                 onClick={() => sendNotifyEmail(website)}
                                 className="btn btn-sm btn-secondary"

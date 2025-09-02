@@ -9,6 +9,7 @@ interface WebsiteThumbnailProps {
   className?: string;
   showRefreshButton?: boolean;
   onRefresh?: () => void;
+  htmlContent?: string; // 用于在无截图时的内嵌预览回退
 }
 
 export const WebsiteThumbnail: React.FC<WebsiteThumbnailProps> = ({
@@ -17,7 +18,8 @@ export const WebsiteThumbnail: React.FC<WebsiteThumbnailProps> = ({
   title,
   className = '',
   showRefreshButton = false,
-  onRefresh
+  onRefresh,
+  htmlContent
 }) => {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,7 +36,8 @@ export const WebsiteThumbnail: React.FC<WebsiteThumbnailProps> = ({
       setError(false);
       
       const response = await screenshotService.getThumbnail(websiteId);
-      setThumbnailUrl(response.data.thumbnailUrl);
+      // APIResponse<{ thumbnailUrl: string }>
+      setThumbnailUrl(response.data?.data?.thumbnailUrl || null);
     } catch (err) {
       console.log(`No thumbnail found for website ${websiteId}`);
       setError(true);
@@ -73,6 +76,20 @@ export const WebsiteThumbnail: React.FC<WebsiteThumbnailProps> = ({
     }
 
     if (error || !thumbnailUrl) {
+      // 回退：若提供了htmlContent，则使用内嵌预览模拟截图
+      if (htmlContent) {
+        return (
+          <div className="w-full h-full bg-white relative overflow-hidden">
+            <div className="absolute inset-0 scale-[0.25] origin-top-left pointer-events-none" style={{ width: '400%', height: '400%' }}>
+              <iframe
+                srcDoc={htmlContent}
+                title={`${title} 预览`}
+                className="w-full h-full border-0"
+              />
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="w-full h-full bg-gradient-to-br from-gray-100 to-gray-200 flex flex-col items-center justify-center">
           {error ? (
@@ -105,7 +122,7 @@ export const WebsiteThumbnail: React.FC<WebsiteThumbnailProps> = ({
       
       {/* 刷新按钮 */}
       {showRefreshButton && domain && (
-        <div className="absolute top-2 right-2">
+        <div className="absolute top-2 right-2 z-20">
           <button
             onClick={handleRefresh}
             disabled={refreshing}

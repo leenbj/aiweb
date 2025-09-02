@@ -226,7 +226,7 @@ export function DashboardOverview() {
                   onClick={() => navigate(action.action)}
                 >
                   <CardContent className="p-6 text-center space-y-4">
-                    <div className={`w-16 h-16 mx-auto rounded-full bg-gradient-to-r ${action.color} flex items-center justify-center`}>
+                    <div className={`w-16 h-16 mx-auto rounded-full ${action.title === '创建新网站' ? 'bg-primary' : `bg-gradient-to-r ${action.color}`} flex items-center justify-center`}>
                       <Icon className="w-8 h-8 text-white" />
                     </div>
                     <div>

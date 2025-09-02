@@ -38,6 +38,8 @@ interface Props {
   className?: string;
   projectName?: string;
   onProjectNameChange?: (name: string) => void;
+  initialMessages?: Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string | Date }>;
+  websiteId?: string;
 }
 
 // 模拟代码生成的组件 - 已废弃，改为使用新的代码展示组件
@@ -48,7 +50,9 @@ export default function AIAssistantModern({
   onGenerationEnd, 
   className = '',
   projectName = '未命名',
-  onProjectNameChange 
+  onProjectNameChange,
+  initialMessages,
+  websiteId
 }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   
@@ -80,6 +84,32 @@ export default function AIAssistantModern({
     textBufferRef.current = '';
     lastLangRef.current = 'html';
     codeStartedRef.current = false;
+  };
+
+  // 从完整文本中拆分：将可能的HTML网页代码与普通文本分离（应对模型未使用围栏直接输出HTML的情况）
+  const splitHtmlFromText = (s: string): { text: string; code: string } => {
+    if (!s) return { text: '', code: '' };
+    const lower = s.toLowerCase();
+    const candidates = [
+      '<!doctype html',
+      '<html',
+      '<head',
+      '<body',
+      '<div',
+      '<section',
+      '<main',
+      '<header',
+      '<footer'
+    ];
+    let idx = -1;
+    for (const needle of candidates) {
+      const i = lower.indexOf(needle);
+      if (i !== -1) {
+        idx = idx === -1 ? i : Math.min(idx, i);
+      }
+    }
+    if (idx === -1) return { text: s, code: '' };
+    return { text: s.slice(0, idx).trim(), code: s.slice(idx) };
   };
 
   const processChunk = (raw: string) => {
@@ -159,6 +189,50 @@ export default function AIAssistantModern({
     scrollToBottom();
   }, [messages]);
 
+  // 初始化对话历史
+  useEffect(() => {
+    // 优先使用后端返回的历史
+    if (initialMessages && initialMessages.length > 0) {
+      const mapped: Message[] = initialMessages.map((m, idx) => ({
+        id: `hist-${idx}-${Date.now()}`,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
+        isStreaming: false,
+      }));
+      setMessages(mapped);
+      setTimeout(scrollToBottom, 0);
+      return;
+    }
+    // 其次回退到本地存储
+    if (websiteId) {
+      try {
+        const raw = localStorage.getItem(`chat-history:${websiteId}`);
+        if (raw) {
+          const arr = JSON.parse(raw) as Array<{ role: 'user' | 'assistant'; content: string; timestamp?: string }>;
+          const mapped: Message[] = arr.map((m, idx) => ({
+            id: `local-${idx}-${Date.now()}`,
+            role: m.role,
+            content: m.content,
+            timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
+            isStreaming: false,
+          }));
+          setMessages(mapped);
+          setTimeout(scrollToBottom, 0);
+        }
+      } catch {}
+    }
+  }, [initialMessages, websiteId]);
+
+  // 持久化当前会话到本地（仅保存必要字段）
+  useEffect(() => {
+    if (!websiteId) return;
+    try {
+      const compact = messages.map(m => ({ role: m.role, content: m.content, timestamp: m.timestamp }));
+      localStorage.setItem(`chat-history:${websiteId}`, JSON.stringify(compact));
+    } catch {}
+  }, [messages, websiteId]);
+
   // 被动刷新：每5秒重渲染一次用于更新“心跳是否过期”的显示
   useEffect(() => {
     const t = window.setInterval(() => setTick((v) => v + 1), 5000);
@@ -231,19 +305,38 @@ export default function AIAssistantModern({
         // onChunk - 实时流式显示
         (chunk: string) => {
           fullResponse += chunk;
-          // 增量解析：将代码分离到 codeBufferRef，普通文本进入 textBufferRef
+          // 增量解析：优先根据围栏解析
           processChunk(chunk);
-          const contentText = textBufferRef.current;
-          const codeText = codeBufferRef.current;
 
-          // 实时更新对话中的文本与代码框
+          let displayText = textBufferRef.current;
+          let displayCode = codeBufferRef.current;
+          let displayLang = lastLangRef.current;
+
+          // 兜底：当未使用围栏直接输出HTML时，从完整响应中拆分
+          if (!displayCode) {
+            const { text, code } = splitHtmlFromText(fullResponse);
+            if (code) {
+              displayText = text;
+              displayCode = code;
+              displayLang = 'html';
+            }
+          }
+
+          // 首次发现代码信号，触发“生成中”动画
+          const hasHtmlSignal = !!displayCode && /<!DOCTYPE\s+html|<html|<head|<body|<div|<section|<main|<header|<footer/i.test(displayCode);
+          if (!codeStartedRef.current && hasHtmlSignal) {
+            codeStartedRef.current = true;
+            onGenerationStart?.();
+          }
+
+          // 对话内容中不再直接显示代码
           setMessages(prev => prev.map(msg =>
             msg.id === assistantMessageId
               ? {
                   ...msg,
-                  content: contentText,
-                  codeSnippet: codeText || null,
-                  codeLang: codeText ? lastLangRef.current : msg.codeLang,
+                  content: displayText,
+                  codeSnippet: displayCode || null,
+                  codeLang: displayCode ? displayLang : msg.codeLang,
                   codeTitle: lastFilePathRef.current || msg.codeTitle || null,
                   isStreaming: true,
                   reasoning: fullResponse.length > 0 ? '✨ 正在实时为您生成回答...' : msg.reasoning,
@@ -251,14 +344,9 @@ export default function AIAssistantModern({
               : msg
           ));
 
-          // 首次发现代码，触发右侧生成动画开始
-          if (!codeStartedRef.current && codeText) {
-            codeStartedRef.current = true;
-            onGenerationStart?.();
-          }
-          // 实时同步到右侧代码模块：优先提取完整 <!DOCTYPE html> ... </html>
-          if (codeText) {
-            const full = extractFullHtml(codeText) || codeText;
+          // 实时同步到右侧代码模块：优先完整文档，否则增量
+          if (displayCode) {
+            const full = extractFullHtml(displayCode) || displayCode;
             onCodeUpdate?.(full);
           }
         },
@@ -268,12 +356,11 @@ export default function AIAssistantModern({
           let finalCode = codeBufferRef.current;
           let finalText = textBufferRef.current;
           if (!finalCode) {
-            const fallback = response.match(/```html\s*[\r\n]+([\s\S]*?)```/i) || response.match(/(<html[\s\S]*<\/html>)/i);
-            if (fallback) {
-              finalCode = fallback[1] || fallback[0];
-              finalText = response.replace(fallback[0], '').trim();
-              lastLangRef.current = 'html';
-            }
+            // 完成时再兜底一次：拆分出HTML
+            const { text, code } = splitHtmlFromText(response);
+            finalCode = code || '';
+            finalText = text || response;
+            if (finalCode) lastLangRef.current = 'html';
           }
 
           setMessages(prev => prev.map(msg =>
@@ -290,10 +377,10 @@ export default function AIAssistantModern({
               : msg
           ));
 
-          // 完成：确保右侧代码模块有最终版本并结束动画
+          // 完成：优先完整文档；否则在存在HTML信号时也交付最终增量
           if (finalCode) {
-            setPendingCode(finalCode);
             const full = extractFullHtml(finalCode) || finalCode;
+            setPendingCode(full);
             onCodeUpdate?.(full);
           }
 
@@ -380,6 +467,9 @@ export default function AIAssistantModern({
 
   const handleClearConversation = () => {
     setMessages([]);
+    if (websiteId) {
+      try { localStorage.removeItem(`chat-history:${websiteId}`); } catch {}
+    }
   };
 
   const handlePause = () => {

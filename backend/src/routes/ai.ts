@@ -643,27 +643,31 @@ router.post('/chat-stream', authenticate, async (req: any, res: Response) => {
           logger.warn('chat-stream 自动续写完整HTML出现问题：', ensureErr);
         }
 
-        // 尾部兜底合并：若仍未闭合，追加必要的收尾标签
+        // 尾部兜底合并：若仍未闭合，追加必要的收尾标签（仅在确有HTML信号时启用）
         try {
           const hasHtmlOpen = /<html[^>]*>/i.test(fullResponse);
           const hasDoctype = /<!DOCTYPE\s+html>/i.test(fullResponse);
           const hasBodyOpen = /<body[^>]*>/i.test(fullResponse);
           const hasHtmlClose = /<\/html>/i.test(fullResponse);
           const hasBodyClose = /<\/body>/i.test(fullResponse);
+          const htmlStr = extractPureHtmlFromResponse(fullResponse) || '';
+          const shouldTail = !!htmlStr || hasHtmlOpen || hasBodyOpen || hasDoctype;
 
-          let tail = '';
-          if (hasBodyOpen && !hasBodyClose) tail += '</body>';
-          if (hasHtmlOpen && !hasHtmlClose) tail += '</html>';
+          if (shouldTail) {
+            let tail = '';
+            if (hasBodyOpen && !hasBodyClose) tail += '</body>';
+            if (hasHtmlOpen && !hasHtmlClose) tail += '</html>';
 
-          if (!hasHtmlOpen) {
-            const skeleton = `${hasDoctype ? '' : '<!DOCTYPE html>\n'}<html lang="zh-CN">\n<head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>AI Generated</title></head>\n<body>\n${fullResponse}\n</body>\n</html>`;
-            fullResponse += skeleton;
-            chunkIndex++;
-            res.write(`data: ${JSON.stringify({ type: 'chunk', content: skeleton, mode: mode, chunkIndex })}\n\n`);
-          } else if (tail) {
-            fullResponse += tail;
-            chunkIndex++;
-            res.write(`data: ${JSON.stringify({ type: 'chunk', content: tail, mode: mode, chunkIndex })}\n\n`);
+            if (!hasHtmlOpen) {
+              const skeleton = `${hasDoctype ? '' : '<!DOCTYPE html>\n'}<html lang="zh-CN">\n<head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>AI Generated</title></head>\n<body>\n${htmlStr || fullResponse}\n</body>\n</html>`;
+              fullResponse += skeleton;
+              chunkIndex++;
+              res.write(`data: ${JSON.stringify({ type: 'chunk', content: skeleton, mode: mode, chunkIndex })}\n\n`);
+            } else if (tail) {
+              fullResponse += tail;
+              chunkIndex++;
+              res.write(`data: ${JSON.stringify({ type: 'chunk', content: tail, mode: mode, chunkIndex })}\n\n`);
+            }
           }
         } catch (tailErr) {
           logger.warn('chat-stream 尾部兜底合并失败：', tailErr);

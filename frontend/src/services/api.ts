@@ -571,12 +571,14 @@ export const serverService = {
 };
 
 // Settings service
+type UserSettingsExt = UserSettings & { notificationEmails?: string };
+
 export const settingsService = {
   getSettings: (showFullKeys?: boolean) =>
-    apiClient.get<UserSettings>(`/settings${showFullKeys ? '?showFullKeys=true' : ''}`),
+    apiClient.get<UserSettingsExt>(`/settings${showFullKeys ? '?showFullKeys=true' : ''}`),
 
-  updateSettings: (data: Partial<UserSettings>) =>
-    apiClient.put<UserSettings>('/settings', data),
+  updateSettings: (data: Partial<UserSettingsExt>) =>
+    apiClient.put<UserSettingsExt>('/settings', data),
 
   getUsage: (params?: {
     startDate?: string;
