@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { deploymentService } from '../services/deployment';
+import { baotaService } from '../services/baota';
+import { config } from '../config';
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
 
@@ -32,7 +34,22 @@ router.post('/deploy/:websiteId', authenticate, async (req: AuthRequest, res) =>
     }
 
     // Start deployment process
-    await deploymentService.deployWebsite(websiteId, website.domain, website.content);
+    if (config.baota.url && config.baota.apiKey) {
+      // Use Baota API path
+      const result = await baotaService.deploy(websiteId, website.domain, website.content);
+      await prisma.website.update({
+        where: { id: websiteId },
+        data: {
+          status: 'published',
+          sslStatus: result.sslOk ? 'active' : 'pending',
+          dnsStatus: 'pending',
+          deployedAt: new Date(),
+        },
+      });
+    } else {
+      // Fallback: local Nginx/Certbot flow
+      await deploymentService.deployWebsite(websiteId, website.domain, website.content);
+    }
 
     res.json({
       success: true,
@@ -66,7 +83,11 @@ router.post('/undeploy/:websiteId', authenticate, async (req: AuthRequest, res) 
     }
 
     // Start undeployment process
-    await deploymentService.undeployWebsite(website.domain);
+    if (config.baota.url && config.baota.apiKey) {
+      await baotaService.stopSite(website.domain);
+    } else {
+      await deploymentService.undeployWebsite(website.domain);
+    }
 
     // Update website status
     await prisma.website.update({

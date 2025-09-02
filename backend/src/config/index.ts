@@ -72,6 +72,11 @@ export const config = {
     maxConnections: 100,
   },
   
+  baota: {
+    url: process.env.BT_PANEL_URL || '',
+    apiKey: process.env.BT_API_KEY || '',
+  },
+  
   security: {
     bcryptRounds: 12,
     rateLimitWindow: 15 * 60 * 1000, // 15 minutes
