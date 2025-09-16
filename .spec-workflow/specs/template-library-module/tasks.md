@@ -118,3 +118,26 @@
   - _Leverage: docs/
   - _Requirements: 需求/上传包规范, 设计/Best Practices_
   - _Prompt: Implement the task for spec template-library-module, first run spec-workflow-guide to get the workflow guide then implement the task: Role: 文档工程师 | Task: 整理示例与约定并形成文档 | Restrictions: 中文撰写；结构清晰；与需求/设计一致 | _Leverage: 现有 docs | _Requirements: 上传包规范 | Success: 团队可按文档产出合规 ZIP 包 | Instructions: 按进度更新任务状态。_
+
+---
+
+补充细化明细（实现指引）
+
+- Importer 函数与变量
+  - 常量 `ALLOWED_EXTS`；函数 `isAllowed()`, `safeJoinUploads()`, `rewriteAssets()`, `tryCompile()`；变量 `assetsBase`。
+  - 日志输出结构：info（importId, pages, components, durationMs）、warn（skipped file）、error（message）。
+
+- 组件候选选择器清单
+  - header:first, footer:first, section.hero:first, .hero:first, .pricing:first, section.pricing:first, [class*=pricing]:first, .features:first, [class*=feature]:first, .team:first, [class*=team]:first, .service:first, [class*=service]:first
+
+- 预览校验
+  - `<base href="/uploads/u_.../">` 存在；iframe 渲染无 404；返回 html 非空。
+
+- 前端 UI 改动点
+  - `TemplateLibrary.tsx`：type 切换、空态、错误 toast、预览 iframe `srcDoc`。
+  - 装配视图：候选选择、上/下移动/删除、预览调用 compose。
+
+- 冒烟脚本断言
+  - 导入响应 pages/components 至少一个；
+  - 搜索 `type=page|component` 可命中；
+  - compose/render 成功返回 html；导出 ZIP 可下载。
