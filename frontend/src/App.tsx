@@ -8,6 +8,8 @@ import { Settings } from './pages/Settings';
 import { Deployments } from './pages/Deployments';
 import { DeploymentManagement } from './pages/DeploymentManagement';
 import { TokenStats } from './pages/TokenStats';
+import TemplateLibrary from './pages/TemplateLibrary';
+import UploadZip from './pages/UploadZip';
 
 // Import new components
 import { DashboardSidebar } from './components/DashboardSidebar';
@@ -71,6 +73,10 @@ export default function App() {
         return <DeploymentManagement />;
       case 'tokens':
         return <TokenStats />;
+      case 'templates':
+        return <TemplateLibrary />;
+      case 'uploadZip':
+        return <UploadZip />;
       default:
         return <DashboardOverview />;
     }
@@ -83,7 +89,7 @@ export default function App() {
         isCollapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
       />
-      <main className="flex-1 overflow-auto">
+      <main className="app-main flex-1 min-w-0 min-h-0 overflow-auto relative bg-background">
         {renderDashboardContent()}
       </main>
     </div>

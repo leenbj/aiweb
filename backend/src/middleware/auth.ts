@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
+import { memFindById, ensureDefaultDevUser } from '../services/authMemory';
 
 interface AuthRequest extends Request {
   user?: {
@@ -62,11 +63,22 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
       return res.status(401).json({ success: false, error: 'Invalid token payload.' });
     }
 
-    // Fetch user from database
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.id },
-      select: { id: true, email: true, name: true, role: true },
-    });
+    // Fetch user from database（失败或未找到则尝试内存用户）
+    let user: any = null;
+    try {
+      user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        select: { id: true, email: true, name: true, role: true },
+      });
+    } catch (e) {
+      // ignore
+    }
+    if (!user) {
+      // DB 不可用或未找到，确保默认开发用户存在并尝试匹配内存用户
+      await ensureDefaultDevUser();
+      const mem = await memFindById(decoded.id);
+      if (mem) user = { id: mem.id, email: mem.email, name: mem.name, role: mem.role };
+    }
 
     if (!user) {
       logger.warn('认证失败: 用户不存在', { userId: decoded.id });

@@ -25,6 +25,7 @@ import tokensRoutes from './routes/tokens';
 import adminRoutes from './routes/admin';
 import { uploadsRouter } from './routes/uploads';
 import notificationsRoutes from './routes/notifications';
+import templateRoutes from './routes/templates';
 // import screenshotRoutes from './routes/screenshots';
 
 // Global error handlers for unhandled promises and exceptions
@@ -119,6 +120,22 @@ async function startServer() {
   app.use('/api/admin', adminRoutes);
   app.use('/api/uploads', uploadsRouter);
   app.use('/api/notifications', notificationsRoutes);
+  app.use('/api/templates', templateRoutes);
+  
+  // 预览静态站点：/preview/website/:id/* -> SITES_ROOT/:id/*
+  const path = require('path');
+  const fs = require('fs');
+  const { ensureRelative } = require('./utils/file');
+  const { config: appConfig } = require('./config');
+  app.get('/preview/website/:id/*', (req, res) => {
+    const id = (req.params as any).id;
+    const remaining = (req.params as any)[0] || 'index.html';
+    const rel = ensureRelative(remaining);
+    const root = path.resolve(process.env.SITES_ROOT || appConfig.server.sitesPath || './sites');
+    const filePath = path.resolve(root, id, rel);
+    if (!fs.existsSync(filePath)) return res.status(404).send('Not Found');
+    res.sendFile(filePath);
+  });
   // Optional alias to serve uploaded files under /uploads
   app.use('/uploads', uploadsRouter);
   // app.use('/api/screenshots', screenshotRoutes);

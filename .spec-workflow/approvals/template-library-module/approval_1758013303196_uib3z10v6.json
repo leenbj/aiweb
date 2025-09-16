@@ -1,0 +1,21 @@
+{
+  "id": "approval_1758013303196_uib3z10v6",
+  "title": "任务分解：模板库+组件库+装配（Phase 3）",
+  "filePath": ".spec-workflow/specs/template-library-module/tasks.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2025-09-16T09:01:43.196Z",
+  "category": "spec",
+  "categoryName": "template-library-module",
+  "response": "Feedback Summary (1 comments):\n\nGeneral Comments:\n1. 任务需要尽量拆分的更加详细点\n\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"general\",\n      \"comment\": \"任务需要尽量拆分的更加详细点\",\n      \"timestamp\": \"2025-09-16T09:03:59.250Z\",\n      \"id\": \"comment_1758013439250_vvrla3wfc\"\n    }\n  ],\n  \"summary\": \"Feedback Summary (1 comments):\\n\\nGeneral Comments:\\n1. 任务需要尽量拆分的更加详细点\\n\\n\",\n  \"timestamp\": \"2025-09-16T09:04:01.924Z\"\n}",
+  "respondedAt": "2025-09-16T09:04:01.931Z",
+  "comments": [
+    {
+      "type": "general",
+      "comment": "任务需要尽量拆分的更加详细点",
+      "timestamp": "2025-09-16T09:03:59.250Z",
+      "id": "comment_1758013439250_vvrla3wfc"
+    }
+  ]
+}

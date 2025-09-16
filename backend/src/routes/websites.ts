@@ -3,6 +3,8 @@ import Joi from 'joi';
 import { prisma } from '../database';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { logger } from '../utils/logger';
+import { buildStaticSite } from '../services/buildService';
+import { ensureRelative } from '../utils/file';
 
 const router = Router();
 
@@ -322,3 +324,24 @@ router.get('/:id/export', authenticate, async (req: AuthRequest, res) => {
 });
 
 export default router;
+
+// Build static site for preview/deploy
+router.post('/:id/build-static', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user!.id;
+    const website = await prisma.website.findFirst({ where: { id, userId } });
+    if (!website) return res.status(404).json({ success: false, error: 'Website not found' });
+
+    const body = req.body || {};
+    // 规范路径
+    if (Array.isArray(body.pages)) {
+      body.pages = body.pages.map((p: any) => ({ ...p, path: ensureRelative(p.path || 'index.html') }));
+    }
+    const r = await buildStaticSite({ websiteId: id, ...body });
+    res.json(r);
+  } catch (error: any) {
+    logger.error('build-static error', error);
+    res.status(500).json({ success: false, error: error?.message || 'Server error' });
+  }
+});

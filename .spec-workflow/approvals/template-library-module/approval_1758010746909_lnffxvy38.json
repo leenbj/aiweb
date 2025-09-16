@@ -1,0 +1,21 @@
+{
+  "id": "approval_1758010746909_lnffxvy38",
+  "title": "模板库模块 — 需求规范（Phase 1: Requirements）",
+  "filePath": ".spec-workflow/specs/template-library-module/requirements.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2025-09-16T08:19:06.909Z",
+  "category": "spec",
+  "categoryName": "template-library-module",
+  "response": "Feedback Summary (1 comments):\n\nGeneral Comments:\n1. 模板库功能模块的需求为，要通过上传压缩包的网页模版文件，然后通过ai系统的分析处理，以后用户在通过ai生成相关网页的时候，能够直接调用相关的网页模版作为参考，然后再在模版的基础上进行页面的设计和生成，分析现有的模板库功能进行优化和功能升级，模板库要方便管理，并且能够预览对应的模版样式\n\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"general\",\n      \"comment\": \"模板库功能模块的需求为，要通过上传压缩包的网页模版文件，然后通过ai系统的分析处理，以后用户在通过ai生成相关网页的时候，能够直接调用相关的网页模版作为参考，然后再在模版的基础上进行页面的设计和生成，分析现有的模板库功能进行优化和功能升级，模板库要方便管理，并且能够预览对应的模版样式\",\n      \"timestamp\": \"2025-09-16T08:25:59.064Z\",\n      \"id\": \"comment_1758011159064_xjlh3ks5m\"\n    }\n  ],\n  \"summary\": \"Feedback Summary (1 comments):\\n\\nGeneral Comments:\\n1. 模板库功能模块的需求为，要通过上传压缩包的网页模版文件，然后通过ai系统的分析处理，以后用户在通过ai生成相关网页的时候，能够直接调用相关的网页模版作为参考，然后再在模版的基础上进行页面的设计和生成，分析现有的模板库功能进行优化和功能升级，模板库要方便管理，并且能够预览对应的模版样式\\n\\n\",\n  \"timestamp\": \"2025-09-16T08:26:11.526Z\"\n}",
+  "respondedAt": "2025-09-16T08:26:11.537Z",
+  "comments": [
+    {
+      "type": "general",
+      "comment": "模板库功能模块的需求为，要通过上传压缩包的网页模版文件，然后通过ai系统的分析处理，以后用户在通过ai生成相关网页的时候，能够直接调用相关的网页模版作为参考，然后再在模版的基础上进行页面的设计和生成，分析现有的模板库功能进行优化和功能升级，模板库要方便管理，并且能够预览对应的模版样式",
+      "timestamp": "2025-09-16T08:25:59.064Z",
+      "id": "comment_1758011159064_xjlh3ks5m"
+    }
+  ]
+}

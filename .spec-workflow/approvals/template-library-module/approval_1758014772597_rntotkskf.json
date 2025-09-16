@@ -1,0 +1,21 @@
+{
+  "id": "approval_1758014772597_rntotkskf",
+  "title": "任务清单重构：细化到函数/步骤级，聚焦仅静态文件自动导入",
+  "filePath": ".spec-workflow/specs/template-library-module/tasks.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2025-09-16T09:26:12.597Z",
+  "category": "spec",
+  "categoryName": "template-library-module",
+  "response": "Feedback Summary (1 comments):\n\nGeneral Comments:\n1. 任务更加详细点\n\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"general\",\n      \"comment\": \"任务更加详细点\",\n      \"timestamp\": \"2025-09-16T09:26:44.544Z\",\n      \"id\": \"comment_1758014804544_zsvtgze9i\"\n    }\n  ],\n  \"summary\": \"Feedback Summary (1 comments):\\n\\nGeneral Comments:\\n1. 任务更加详细点\\n\\n\",\n  \"timestamp\": \"2025-09-16T09:26:45.835Z\"\n}",
+  "respondedAt": "2025-09-16T09:26:45.851Z",
+  "comments": [
+    {
+      "type": "general",
+      "comment": "任务更加详细点",
+      "timestamp": "2025-09-16T09:26:44.544Z",
+      "id": "comment_1758014804544_zsvtgze9i"
+    }
+  ]
+}

@@ -55,6 +55,18 @@ const navigation = [
     description: 'Token消耗与费用'
   },
   {
+    name: '模板库',
+    route: 'templates' as Route,
+    icon: Code,
+    description: '浏览与检索模板'
+  },
+  {
+    name: 'ZIP 导入',
+    route: 'uploadZip' as Route,
+    icon: Code,
+    description: '导入静态站点为模板'
+  },
+  {
     name: '设置',
     route: 'settings' as Route,
     icon: Settings,
@@ -168,7 +180,7 @@ export function DashboardSidebar({ isCollapsed, onToggle }: DashboardSidebarProp
     <motion.div 
       animate={{ width: isCollapsed ? '4rem' : '16rem' }}
       transition={{ duration: 0.3, ease: 'easeInOut' }}
-      className="h-screen bg-background border-r flex flex-col relative"
+      className="h-screen min-h-0 bg-background border-r flex flex-col relative overflow-hidden"
     >
       {/* Toggle Button */}
       <motion.div
@@ -242,7 +254,7 @@ export function DashboardSidebar({ isCollapsed, onToggle }: DashboardSidebarProp
       </div>
 
       {/* Navigation */}
-      <nav className={`flex-1 space-y-2 ${isCollapsed ? 'p-2' : 'p-4'}`}>
+      <nav className={`flex-1 min-h-0 overflow-y-auto space-y-2 ${isCollapsed ? 'p-2' : 'p-4'}`}>
         {navigation.map((item) => (
           <NavigationItem key={item.route} item={item} />
         ))}

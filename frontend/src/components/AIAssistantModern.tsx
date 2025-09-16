@@ -63,6 +63,7 @@ export default function AIAssistantModern({
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState(projectName);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
   const { setConnected: setGlobalConnected, setHeartbeat: setGlobalHeartbeat, triggerPulse: globalPulse } = useSseStore();
@@ -182,7 +183,14 @@ export default function AIAssistantModern({
   const [tick, setTick] = useState(0); // 用于被动刷新状态
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = listRef.current;
+    if (el) {
+      // 仅滚动左侧消息列表容器，避免滚动整个页面/主容器
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    // 兜底：若未能获取容器，再用锚点滚动
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   };
 
   useEffect(() => {
@@ -608,7 +616,7 @@ export default function AIAssistantModern({
       </div>
 
       {/* 消息列表 - 默认不滚动（空态），有内容时自动滚动 */}
-      <div className={`flex-1 min-h-0 ${messages.length === 0 ? 'overflow-hidden' : 'overflow-y-auto'} p-6 space-y-6 chat-scroll`}>
+      <div ref={listRef} className={`flex-1 min-h-0 ${messages.length === 0 ? 'overflow-hidden' : 'overflow-y-auto'} p-6 space-y-6 chat-scroll`}>
         {messages.length === 0 && (
           // 中心引导区域 - 参考16.png
           <div className="flex flex-col items-center justify-center h-full text-center space-y-6">

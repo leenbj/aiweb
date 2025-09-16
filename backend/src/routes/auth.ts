@@ -6,6 +6,7 @@ import { prisma } from '../database';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { memFindByEmail, memRegister } from '../services/authMemory';
 
 const router = Router();
 
@@ -35,9 +36,13 @@ router.post('/register', async (req, res) => {
     const { name, email, password } = req.body;
 
     // Check if user exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
+    let existingUser: any = null;
+    try {
+      existingUser = await prisma.user.findUnique({ where: { email } });
+    } catch (e) {
+      // DB 不可用时退化到内存检查
+      existingUser = await memFindByEmail(email);
+    }
 
     if (existingUser) {
       return res.status(400).json({
@@ -47,24 +52,18 @@ router.post('/register', async (req, res) => {
     }
 
     // Hash password
-    const hashedPassword = await bcrypt.hash(password, config.security.bcryptRounds);
-
-    // Create user
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        password: hashedPassword,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        avatarUrl: true,
-        createdAt: true,
-      },
-    });
+    let user: any;
+    try {
+      const hashedPassword = await bcrypt.hash(password, config.security.bcryptRounds);
+      user = await prisma.user.create({
+        data: { name, email, password: hashedPassword },
+        select: { id: true, name: true, email: true, role: true, avatarUrl: true, createdAt: true },
+      });
+    } catch (e) {
+      // fallback: 内存注册
+      const mem = await memRegister(name, email, password);
+      user = { id: mem.id, name: mem.name, email: mem.email, role: mem.role, avatarUrl: null, createdAt: mem.createdAt };
+    }
 
     // Generate JWT token
     const token = jwt.sign(
@@ -104,20 +103,23 @@ router.post('/login', async (req, res) => {
 
     const { email, password } = req.body;
 
-    // Find user
-    const user = await prisma.user.findUnique({
-      where: { email },
-    });
+    // Find user（DB 优先，找不到则用内存）
+    let user: any = null;
+    try {
+      user = await prisma.user.findUnique({ where: { email } });
+    } catch (e) {
+      // ignore
+    }
+    if (!user) {
+      user = await memFindByEmail(email);
+    }
 
     if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid credentials',
-      });
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
     // Check password
-    const isValidPassword = await bcrypt.compare(password, user.password);
+    const isValidPassword = await bcrypt.compare(password, (user as any).password);
     if (!isValidPassword) {
       return res.status(401).json({
         success: false,
@@ -133,7 +135,7 @@ router.post('/login', async (req, res) => {
     );
 
     // Remove password from response
-    const { password: _, ...userWithoutPassword } = user;
+    const { password: _, ...userWithoutPassword } = user as any;
 
     logger.info(`User logged in: ${email}`);
 
@@ -156,18 +158,38 @@ router.post('/login', async (req, res) => {
 // Get current user
 router.get('/me', authenticate, async (req: AuthRequest, res) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user!.id },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        avatarUrl: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    let user: any = null;
+    try {
+      user = await prisma.user.findUnique({
+        where: { id: req.user!.id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          avatarUrl: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    } catch (e) {
+      // ignore
+    }
+    if (!user) {
+      // fallback: 从内存集合返回
+      const mem = await memFindByEmail(req.user!.email);
+      if (mem) {
+        user = {
+          id: mem.id,
+          name: mem.name,
+          email: mem.email,
+          role: mem.role,
+          avatarUrl: null,
+          createdAt: mem.createdAt,
+          updatedAt: mem.updatedAt,
+        };
+      }
+    }
 
     if (!user) {
       return res.status(404).json({

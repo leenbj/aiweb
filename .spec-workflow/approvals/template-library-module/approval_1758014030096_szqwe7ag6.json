@@ -1,0 +1,21 @@
+{
+  "id": "approval_1758014030096_szqwe7ag6",
+  "title": "需求调整：仅静态文件上传场景的规范与验收",
+  "filePath": ".spec-workflow/specs/template-library-module/requirements.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2025-09-16T09:13:50.096Z",
+  "category": "spec",
+  "categoryName": "template-library-module",
+  "response": "Feedback Summary (1 comments):\n\nGeneral Comments:\n1. 用户只需要在后台上传网页模版压缩包的操作，后续所有的工作都由系统自动完成，自动化的完成模版库的更新和组件库的生成，并且用户能够在前端页面中查看模版的情况，包括整个页面模版、组件等\n\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"general\",\n      \"comment\": \"用户只需要在后台上传网页模版压缩包的操作，后续所有的工作都由系统自动完成，自动化的完成模版库的更新和组件库的生成，并且用户能够在前端页面中查看模版的情况，包括整个页面模版、组件等\",\n      \"timestamp\": \"2025-09-16T09:16:21.699Z\",\n      \"id\": \"comment_1758014181699_nm6747q4l\"\n    }\n  ],\n  \"summary\": \"Feedback Summary (1 comments):\\n\\nGeneral Comments:\\n1. 用户只需要在后台上传网页模版压缩包的操作，后续所有的工作都由系统自动完成，自动化的完成模版库的更新和组件库的生成，并且用户能够在前端页面中查看模版的情况，包括整个页面模版、组件等\\n\\n\",\n  \"timestamp\": \"2025-09-16T09:16:37.706Z\"\n}",
+  "respondedAt": "2025-09-16T09:16:37.720Z",
+  "comments": [
+    {
+      "type": "general",
+      "comment": "用户只需要在后台上传网页模版压缩包的操作，后续所有的工作都由系统自动完成，自动化的完成模版库的更新和组件库的生成，并且用户能够在前端页面中查看模版的情况，包括整个页面模版、组件等",
+      "timestamp": "2025-09-16T09:16:21.699Z",
+      "id": "comment_1758014181699_nm6747q4l"
+    }
+  ]
+}

@@ -139,6 +139,20 @@ router.get('/:userId/:filename', asyncHandler(async (req: AuthRequest, res: Resp
   }
 }))
 
+// Serve nested uploaded files: /uploads/:userId/<subpath>
+router.get('/:userId/*', asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { userId } = req.params as any
+  const subpath = (req.params as any)[0] || ''
+  const filePath = path.join(process.env.UPLOAD_PATH || './uploads', userId, subpath)
+
+  try {
+    await fs.access(filePath)
+    res.sendFile(path.resolve(filePath))
+  } catch (error) {
+    res.status(404).json({ error: 'File not found' })
+  }
+}))
+
 // Image optimization endpoint
 router.post('/optimize-image', authenticateToken, upload.single('image'), asyncHandler(async (req: AuthRequest, res: Response) => {
   if (!req.file) {

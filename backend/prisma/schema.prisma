@@ -52,6 +52,7 @@ model Website {
   conversations   AIConversation[]
   deployments     Deployment[]
   websiteBackups  WebsiteBackup[]
+  assets          WebsiteAsset[]
 
   @@map("websites")
 }
@@ -233,4 +234,58 @@ model UserActivity {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_activities")
+}
+
+// =========================
+// 模板库与站点资源（新增）
+// =========================
+
+model Template {
+  id          String   @id @default(cuid())
+  type        String   // component | page | theme
+  name        String
+  slug        String   @unique
+  engine      String   // hbs | react | plain
+  description String?  @db.Text
+  code        String   @db.Text
+  schemaJson  Json?
+  tokensJson  Json?
+  tags        String[]
+  version     String   @default("1.0.0")
+  previewHtml String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  versions    TemplateVersion[]
+
+  @@map("templates")
+}
+
+model TemplateVersion {
+  id          String   @id @default(cuid())
+  templateId  String
+  version     String
+  code        String   @db.Text
+  schemaJson  Json?
+  createdAt   DateTime @default(now())
+
+  template Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, version])
+  @@map("template_versions")
+}
+
+model WebsiteAsset {
+  id         String   @id @default(cuid())
+  websiteId  String
+  path       String   // index.html 或 static/css/app.css（相对路径）
+  mime       String
+  size       Int
+  hash       String?
+  createdAt  DateTime @default(now())
+
+  website Website @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+
+  @@unique([websiteId, path])
+  @@map("website_assets")
 }

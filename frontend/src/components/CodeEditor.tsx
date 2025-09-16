@@ -93,6 +93,7 @@ interface CodeEditorProps {
   lineNumbers?: 'on' | 'off' | 'relative' | 'interval';
   typewriterMode?: boolean;
   typewriterSpeed?: number;
+  autoFocus?: boolean;
 }
 
 export const CodeEditor: React.FC<CodeEditorProps> = ({
@@ -106,6 +107,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   lineNumbers = 'on',
   typewriterMode = false,
   typewriterSpeed = 30,
+  autoFocus = false,
 }) => {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [displayedValue, setDisplayedValue] = useState(value);
@@ -299,8 +301,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
       });
     }
 
-    // Focus the editor
-    editor.focus();
+    // 仅在明确要求时聚焦，避免页面初始化时被自动滚动到代码编辑器
+    if (autoFocus) editor.focus();
   };
 
   const handleEditorChange = (value: string | undefined) => {
