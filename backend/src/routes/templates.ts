@@ -6,6 +6,7 @@ import { prisma } from '../database';
 import { renderTemplate, composePage } from '../services/templateRenderer';
 import { searchTemplates } from '../services/templateIndex';
 import { getMemoryTemplateBySlug } from '../services/templateMemory';
+import { exportTemplateArchive } from '../services/templateExporter';
 
 const router = express.Router();
 
@@ -17,6 +18,7 @@ const upload = multer({
 
 // POST /api/templates/import-zip
 router.post('/import-zip', upload.single('file'), async (req, res) => {
+  const startedAt = Date.now();
   try {
     if (!req.file) {
       res.status(400);
@@ -24,9 +26,18 @@ router.post('/import-zip', upload.single('file'), async (req, res) => {
     }
     const userId = (req as any).user?.id || 'u_demo';
     const result = await importZipToTemplates(req.file.buffer, userId);
+    logger.info('templates import success', {
+      importId: result.importId,
+      pages: result.pages.length,
+      components: result.components.length,
+      durationMs: Date.now() - startedAt,
+    });
     return res.json({ success: true, ...result });
   } catch (err: any) {
-    logger.error('import-zip error', err);
+    logger.error('import-zip error', {
+      durationMs: Date.now() - startedAt,
+      error: err instanceof Error ? { message: err.message, stack: err.stack } : err,
+    });
     res.status(500).json({ success: false, error: err?.message || 'Server error' });
   }
 });
@@ -41,6 +52,42 @@ router.get('/search', async (req, res) => {
   } catch (err: any) {
     logger.error('templates search error', err);
     res.status(500).json({ success: false, error: err?.message || 'Server error' });
+  }
+});
+
+router.get('/:id/export', async (req, res) => {
+  const startedAt = Date.now();
+  const { id } = req.params;
+  try {
+    const { stream, filename, size } = await exportTemplateArchive(id);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    if (size) res.setHeader('Content-Length', String(size));
+
+    stream.on('error', (err) => {
+      logger.error('template export stream error', err);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, error: 'Export stream error' });
+      } else {
+        res.end();
+      }
+    });
+
+    stream.on('end', () => {
+      logger.info('template export completed', {
+        templateId: id,
+        durationMs: Date.now() - startedAt,
+        size,
+      });
+    });
+
+    stream.pipe(res);
+  } catch (err: any) {
+    const status = err?.status || err?.statusCode || (String(err?.message || '').includes('not found') ? 404 : 500);
+    logger.error('template export error', err);
+    if (!res.headersSent) {
+      res.status(status).json({ success: false, error: err?.message || 'Export failed' });
+    }
   }
 });
 

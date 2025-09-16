@@ -5,12 +5,58 @@ import path from 'path';
 import fs from 'fs/promises';
 import AdmZip from 'adm-zip';
 import * as cheerio from 'cheerio';
+import type { CheerioAPI } from 'cheerio';
 import Handlebars from 'handlebars';
 import { parametrizeComponentHtml } from './hbsParametrize';
 import { extractThemeTokens } from './themeExtractor';
 import { addMemoryTemplate } from '../templateMemory';
 
 const UPLOADS_ROOT = process.env.UPLOADS_ROOT || process.env.UPLOAD_PATH || './uploads';
+
+const ALLOWED_EXTS = new Set<string>([
+  '.html',
+  '.htm',
+  '.css',
+  '.js',
+  '.json',
+  '.txt',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.svg',
+  '.webp',
+  '.ico',
+  '.woff',
+  '.woff2',
+  '.ttf',
+  '.otf',
+  '.eot',
+  '.mp3',
+  '.mp4',
+  '.webm',
+  '.ogg',
+  '.wav',
+  '.avif',
+]);
+
+const HTML_EXTS = new Set<string>(['.html', '.htm']);
+
+const COMPONENT_CANDIDATES: Array<{ selector: string; slug: string }> = [
+  { selector: 'header:first', slug: 'header' },
+  { selector: 'footer:first', slug: 'footer' },
+  { selector: 'section.hero:first', slug: 'hero-section' },
+  { selector: '.hero:first', slug: 'hero' },
+  { selector: '.pricing:first', slug: 'pricing' },
+  { selector: 'section.pricing:first', slug: 'pricing-section' },
+  { selector: '[class*=pricing]:first', slug: 'pricing-block' },
+  { selector: '.features:first', slug: 'features' },
+  { selector: '[class*=feature]:first', slug: 'feature-block' },
+  { selector: '.team:first', slug: 'team' },
+  { selector: '[class*=team]:first', slug: 'team-block' },
+  { selector: '.service:first', slug: 'service' },
+  { selector: '[class*=service]:first', slug: 'service-block' },
+];
 
 export interface ImportResult {
   importId: string;
@@ -21,8 +67,7 @@ export interface ImportResult {
 }
 
 export async function importZipToTemplates(zipBuffer: Buffer, userId: string): Promise<ImportResult> {
-  // 解压到 uploads/u<userId>/<importId>/ 原地
-  const importId = `imp_${uuidv4().slice(0,8)}`;
+  const importId = `imp_${uuidv4().slice(0, 8)}`;
   const baseDir = path.resolve(UPLOADS_ROOT, `u_${userId}`, importId);
   await fs.mkdir(baseDir, { recursive: true });
 
@@ -30,198 +75,278 @@ export async function importZipToTemplates(zipBuffer: Buffer, userId: string): P
   const entries = zip.getEntries();
 
   const pages: string[] = [];
-  const components: string[] = [];
+  const componentSet = new Set<string>();
   let cssBundle = '';
+  const takenSlugs = new Set<string>();
+  const assetsBase = `/uploads/u_${userId}/${importId}/`;
 
-  // 简单导入策略：
-  // - .html / .htm → 存入 Template(type=page, engine=plain)
-  // - 其他资源写入 baseDir 供预览/构建使用
-  for (const e of entries) {
-    if (e.isDirectory) continue;
-    const relPath = e.entryName.replace(/^\/+/, '');
-    const lower = relPath.toLowerCase();
-    const content = e.getData();
-    if (lower.endsWith('.html') || lower.endsWith('.htm')) {
+  for (const entry of entries) {
+    if (entry.isDirectory) continue;
+
+    let relativePath: string;
+    try {
+      relativePath = ensureRelative(entry.entryName);
+    } catch {
+      logger.warn('zipImporter skipped entry due to invalid path', { entry: entry.entryName });
+      continue;
+    }
+
+    if (relativePath.startsWith('__MACOSX/')) continue;
+
+    if (!isAllowed(relativePath)) {
+      logger.warn('zipImporter skipped file with disallowed extension', { entry: relativePath });
+      continue;
+    }
+
+    const ext = path.extname(relativePath).toLowerCase();
+    const content = entry.getData();
+
+    if (HTML_EXTS.has(ext)) {
       const html = content.toString('utf8');
-      const $ = cheerio.load(html);
+      const $ = cheerio.load(html, { decodeEntities: false } as any);
       const title = $('title').first().text().trim();
-      const baseSlug = path.basename(relPath).replace(/\.(html|htm)$/i, '');
-      const name = title || baseSlug;
+      const baseName = path.basename(relativePath, ext);
+      const pageName = title || baseName;
+      const pageSlugBase = toSlug(pageName) || toSlug(baseName) || `page-${pages.length + 1}`;
+      const pageSlug = await ensureUniqueSlug(pageSlugBase, takenSlugs);
 
-      // 收集 head 资源
-      const links = $('link[rel="stylesheet"]').map((_,el)=>$(el).attr('href')).get().filter(Boolean) as string[];
-      const scripts = $('script[src]').map((_,el)=>$(el).attr('src')).get().filter(Boolean) as string[];
+      const previewHtml = rewriteAssets(html, assetsBase);
 
-      // 识别组件（启发式）
-      const componentCandidates: Array<{ slug: string; el: cheerio.Cheerio }>=[];
-      const headerEl = $('header').first(); if (headerEl.length) componentCandidates.push({ slug:'header', el: headerEl });
-      const footerEl = $('footer').first(); if (footerEl.length) componentCandidates.push({ slug:'footer', el: footerEl });
-      const heroEl = $('section.hero, .hero').first(); if (heroEl.length) componentCandidates.push({ slug:'hero', el: heroEl });
-      const pricingEl = $('.pricing, section.pricing, [class*=pricing]').first(); if (pricingEl.length) componentCandidates.push({ slug:'pricing-table', el: pricingEl });
-      const teamEl = $('.team, .team-grid, [class*=team]').first(); if (teamEl.length) componentCandidates.push({ slug:'team-grid', el: teamEl });
-      const serviceEl = $('.service, .features, [class*=feature], [class*=service]').first(); if (serviceEl.length) componentCandidates.push({ slug:'service-list', el: serviceEl });
+      const componentSlugs = await processComponentCandidates($, {
+        pageSlug,
+        assetsBase,
+        takenSlugs,
+        relPath: relativePath,
+      });
+      componentSlugs.forEach((slug) => componentSet.add(slug));
 
-      // 入库组件模板（hbs）
-      for (const c of componentCandidates) {
-        const htmlFragment = $.html(c.el);
-        let compSlug = c.slug;
-        try {
-          const exists = await prisma.template.findUnique({ where: { slug: compSlug } });
-          if (exists) compSlug = `${compSlug}-${uuidv4().slice(0,6)}`;
-        } catch {}
-        const { code: hbsCode, schemaJson } = parametrizeComponentHtml(htmlFragment);
-        // 使用示例数据渲染预览，并重写相对资源为绝对uploads路径
-        const sampleData = buildSampleData(schemaJson);
-        let preview = tryCompile(hbsCode, sampleData);
-        preview = rewriteAssets(preview, `/uploads/u_${userId}/${importId}/`);
-        const baseRec = {
-          type: 'component',
-          name: compSlug.replace(/(^|[-_])(\w)/g, (_,p1,p2)=>p2.toUpperCase()),
-          slug: compSlug,
-          engine: 'hbs',
-          description: `Imported component from ${relPath}`,
-          code: hbsCode,
-          schemaJson,
-          tags: [] as string[],
-          previewHtml: preview,
-        };
-        try {
-          await prisma.template.create({ data: baseRec as any });
-        } catch {
-          addMemoryTemplate(baseRec);
-        }
-        components.push(compSlug);
-      }
-
-      // 生成 page.hbs 骨架，包含 head 资源与 partial 插槽
-      const partialCalls = components.map(s=>`{{> ${s} ${s} }}`).join('\n');
-      const headLinks = links.map(h=>`<link rel="stylesheet" href="${h}">`).join('\n');
-      const headScripts = scripts.map(s=>`<script src="${s}"></script>`).join('\n');
-      const pageHbs = `<!DOCTYPE html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${name}</title>
-    ${headLinks}
-    ${headScripts}
-  </head>
-  <body>
-    ${partialCalls || $('body').html() || ''}
-  </body>
-</html>`;
-
-      // 入库 page 模板（若无识别组件则作为 plain 回退）
-      let finalSlug = baseSlug;
-      try {
-        const existing = await prisma.template.findUnique({ where: { slug: finalSlug } });
-        if (existing) finalSlug = `${baseSlug}-${uuidv4().slice(0,6)}`;
-      } catch {}
-      // 生成page预览：注册partials并用示例数据编译，然后重写资源为uploads路径
-      const pagePreview = (() => {
-        try {
-          // 注册partials（注意：以最新的 compSlug 列表为准）
-          for (const c of componentCandidates) {
-            const frag = $.html(c.el);
-            const { code } = parametrizeComponentHtml(frag);
-            Handlebars.registerPartial(c.slug, code);
-          }
-          const compiled = Handlebars.compile(pageHbs);
-          const data: any = {};
-          for (const c of componentCandidates) data[c.slug] = buildSampleData();
-          let htmlOut = compiled(data);
-          htmlOut = rewriteAssets(htmlOut, `/uploads/u_${userId}/${importId}/`);
-          return htmlOut;
-        } catch {
-          return pageHbs;
-        }
-      })();
-
-      const pageRec = {
+      const pageRecord: any = {
         type: 'page',
-        name,
-        slug: finalSlug,
-        engine: components.length ? 'hbs' : 'plain',
-        description: `Imported from ZIP: ${relPath}`,
-        code: components.length ? pageHbs : html,
+        name: pageName || pageSlug,
+        slug: pageSlug,
+        engine: 'plain',
+        description: `Imported from ZIP: ${relativePath}`,
+        code: html,
         tags: [] as string[],
-        previewHtml: components.length ? pagePreview : rewriteAssets(html, `/uploads/u_${userId}/${importId}/`),
+        previewHtml,
       };
+
       try {
-        await prisma.template.create({ data: pageRec as any });
-      } catch {
-        addMemoryTemplate(pageRec);
+        await prisma.template.create({ data: pageRecord });
+      } catch (err) {
+        addMemoryTemplate(pageRecord);
+        logger.warn('stored page template in memory', { slug: pageSlug, error: (err as Error)?.message });
       }
-      pages.push(finalSlug);
+
+      pages.push(pageSlug);
     } else {
-      // 写入静态资源
-      const outPath = path.resolve(baseDir, relPath);
-      await fs.mkdir(path.dirname(outPath), { recursive: true });
-      await fs.writeFile(outPath, content);
-      // 收集 CSS 内容用于主题抽取
-      if (lower.endsWith('.css')) {
-        try { cssBundle += content.toString('utf8') + '\n'; } catch {}
+      const outPath = safeJoinUploads(baseDir, relativePath);
+      try {
+        await fs.mkdir(path.dirname(outPath), { recursive: true });
+        await fs.writeFile(outPath, content);
+      } catch (err) {
+        logger.error('failed to persist imported asset', { entry: relativePath, error: (err as Error)?.message });
+      }
+
+      if (ext === '.css') {
+        try {
+          cssBundle += content.toString('utf8') + '\n';
+        } catch (err) {
+          logger.warn('failed to read css for theme extraction', { entry: relativePath, error: (err as Error)?.message });
+        }
       }
     }
   }
 
-  // 主题 Token 抽取与入库（可选）
-  let themeSlug: string | undefined = undefined;
+  let themeSlug: string | undefined;
   try {
     const { tokens, css } = extractThemeTokens(cssBundle);
     if (tokens && Object.keys(tokens).length) {
       themeSlug = `theme-${importId}`;
-      const themeRec = {
+      const themeRecord: any = {
         type: 'theme',
         name: 'Default Theme',
         slug: themeSlug,
         engine: 'plain',
         description: `Extracted tokens from ZIP ${importId}`,
         code: css || '',
-        tokensJson: tokens as any,
+        tokensJson: tokens,
         tags: ['theme'] as string[],
       };
+
       try {
-        await prisma.template.create({ data: themeRec as any });
-      } catch {
-        addMemoryTemplate(themeRec as any);
+        await prisma.template.create({ data: themeRecord });
+      } catch (err) {
+        addMemoryTemplate(themeRecord);
+        logger.warn('stored theme template in memory', { slug: themeSlug, error: (err as Error)?.message });
       }
     }
-  } catch {}
+  } catch (err) {
+    logger.warn('theme token extraction failed', { importId, error: (err as Error)?.message });
+  }
+
+  const componentList = Array.from(componentSet);
+  logger.info('zip import completed', {
+    importId,
+    pages: pages.length,
+    components: componentList.length,
+  });
 
   return {
     importId,
     pages,
-    components,
+    components: componentList,
     theme: themeSlug || 'default',
-    assetsBase: `/uploads/u_${userId}/${importId}/`,
+    assetsBase,
   };
 }
 
+function isAllowed(relPath: string) {
+  const ext = path.extname(relPath).toLowerCase();
+  return ALLOWED_EXTS.has(ext);
+}
+
+function ensureRelative(entryName: string) {
+  const normalized = entryName.replace(/\\/g, '/').replace(/^\/+/g, '');
+  const safe = path.posix.normalize(normalized);
+  if (!safe || safe === '.' || safe.startsWith('..') || safe.includes('/../')) {
+    throw new Error(`Invalid entry path: ${entryName}`);
+  }
+  return safe;
+}
+
+function safeJoinUploads(baseDir: string, relPath: string) {
+  const relative = ensureRelative(relPath);
+  const target = path.resolve(baseDir, relative);
+  if (!target.startsWith(baseDir)) {
+    throw new Error(`Unsafe path detected: ${relPath}`);
+  }
+  return target;
+}
+
+async function processComponentCandidates(
+  $: CheerioAPI,
+  options: { pageSlug: string; assetsBase: string; takenSlugs: Set<string>; relPath: string },
+) {
+  const slugs: string[] = [];
+  const seen = new Set<any>();
+
+  for (const candidate of COMPONENT_CANDIDATES) {
+    const el = $(candidate.selector).first();
+    if (!el || el.length === 0) continue;
+    const node = el.get(0);
+    if (!node || seen.has(node)) continue;
+    seen.add(node);
+
+    const fragmentHtml = $.html(el) || '';
+    if (!fragmentHtml.trim()) continue;
+
+    let code = fragmentHtml;
+    let schemaJson: any | undefined;
+    try {
+      const result = parametrizeComponentHtml(fragmentHtml);
+      code = result.code || fragmentHtml;
+      schemaJson = result.schemaJson;
+    } catch (err) {
+      logger.warn('component parametrization failed', { selector: candidate.selector, error: (err as Error)?.message });
+    }
+
+    const sample = buildSampleData(schemaJson);
+    let preview = tryCompile(code, sample);
+    preview = rewriteAssets(preview, options.assetsBase);
+
+    const base = toSlug(`${options.pageSlug}-${candidate.slug}`) || candidate.slug || 'component';
+    const slug = await ensureUniqueSlug(base, options.takenSlugs);
+    const name = toTitleCase(slug);
+
+    const componentRecord: any = {
+      type: 'component',
+      name,
+      slug,
+      engine: 'hbs',
+      description: `Imported component from ${options.relPath} (${candidate.selector})`,
+      code,
+      schemaJson,
+      tags: [candidate.slug],
+      previewHtml: preview,
+    };
+
+    try {
+      await prisma.template.create({ data: componentRecord });
+    } catch (err) {
+      addMemoryTemplate(componentRecord);
+      logger.warn('stored component template in memory', { slug, error: (err as Error)?.message });
+    }
+
+    slugs.push(slug);
+  }
+
+  return slugs;
+}
+
+function toSlug(input: string) {
+  if (!input) return '';
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function toTitleCase(slug: string) {
+  return slug
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ') || 'Component';
+}
+
+async function ensureUniqueSlug(baseSlug: string, taken: Set<string>) {
+  let sanitized = toSlug(baseSlug);
+  if (!sanitized) sanitized = `tpl-${uuidv4().slice(0, 6)}`;
+
+  let candidate = sanitized;
+  while (taken.has(candidate) || (await slugExists(candidate))) {
+    candidate = `${sanitized}-${uuidv4().slice(0, 6)}`;
+  }
+
+  taken.add(candidate);
+  return candidate;
+}
+
+async function slugExists(slug: string) {
+  try {
+    const rec = await prisma.template.findUnique({ where: { slug } });
+    return !!rec;
+  } catch {
+    return false;
+  }
+}
+
 function buildSampleData(schema?: any) {
-  // 简易示例数据，覆盖常见键
   const data: any = {
     title: '示例标题',
     subtitle: '示例副标题',
     cta: { text: '立即查看', href: '#' },
     image: { src: 'https://via.placeholder.com/640x360?text=Preview', alt: '示例图片' },
   };
-  if (schema && schema.properties) {
-    if (schema.properties.items) {
-      const itemsSchema = schema.properties.items;
-      if (itemsSchema.type === 'array' && itemsSchema.items?.type === 'object') {
-        data.items = [
-          { name: '基础版', price: '¥99/月' },
-          { name: '专业版', price: '¥199/月' },
-          { name: '企业版', price: '¥399/月' },
-        ];
-      } else {
-        data.items = ['特性一', '特性二', '特性三'];
-      }
+
+  const props = schema && typeof schema === 'object' ? schema.properties || {} : {};
+  const itemsSchema = props.items;
+  if (itemsSchema && itemsSchema.type === 'array') {
+    const schemaItems = itemsSchema.items || {};
+    if (schemaItems.type === 'object') {
+      data.items = [
+        { name: '基础版', price: '¥99/月' },
+        { name: '专业版', price: '¥199/月' },
+        { name: '企业版', price: '¥399/月' },
+      ];
+    } else {
+      data.items = ['特性一', '特性二', '特性三'];
     }
   } else {
     data.items = ['特性一', '特性二', '特性三'];
   }
+
   return data;
 }
 
@@ -235,20 +360,63 @@ function tryCompile(hbsCode: string, ctx: any) {
 }
 
 function rewriteAssets(html: string, assetsBase: string) {
+  if (!html) return html;
+  const base = assetsBase.replace(/\/?$/, '/');
   try {
-    const $ = cheerio.load(html);
-    $('link[rel="stylesheet"][href], script[src], img[src]').each((_, el) => {
-      const $el = $(el);
-      const attr = $el.is('link') ? 'href' : 'src';
-      const val = $el.attr(attr) || '';
-      if (!val || /^https?:/i.test(val) || /^data:/i.test(val) || val.startsWith('/uploads/')) return;
-      const clean = val.replace(/^\.?\//, '').replace(/^\//, '');
-      $el.attr(attr, assetsBase.replace(/\/$/, '/') + clean);
-    });
-    // 注入 <base>，以便其它相对资源解析
-    if ($('head').length && $('head base').length === 0) {
-      $('head').prepend(`<base href="${assetsBase.replace(/\/$/, '/')}">`);
+    const $ = cheerio.load(html, { decodeEntities: false } as any);
+    const rewriteSingle = (value: string) => {
+      const trimmed = (value || '').trim();
+      if (!trimmed) return value;
+      const queryIndex = trimmed.search(/[?#]/);
+      const pathPart = queryIndex === -1 ? trimmed : trimmed.slice(0, queryIndex);
+      const suffix = queryIndex === -1 ? '' : trimmed.slice(queryIndex);
+      if (/^(?:https?:|data:|\/\/)/i.test(pathPart)) return trimmed;
+      if (pathPart.startsWith('/uploads/')) return trimmed;
+      const withoutDot = pathPart.replace(/^\.?\//, '').replace(/^\/+/g, '');
+      if (!withoutDot) return trimmed;
+      const normalized = path.posix.normalize(withoutDot);
+      if (!normalized || normalized.startsWith('..')) return trimmed;
+      return base + normalized.replace(/^\/+/g, '') + suffix;
+    };
+
+    const rewriteSrcset = (value: string) => {
+      return value
+        .split(',')
+        .map((part) => {
+          const trimmed = part.trim();
+          if (!trimmed) return trimmed;
+          const [url, descriptor] = trimmed.split(/\s+/, 2);
+          const rewritten = rewriteSingle(url);
+          return descriptor ? `${rewritten} ${descriptor}` : rewritten;
+        })
+        .join(', ');
+    };
+
+    const targets: Array<{ selector: string; attr: string; type?: 'srcset' }> = [
+      { selector: 'link[rel="stylesheet"][href]', attr: 'href' },
+      { selector: 'script[src]', attr: 'src' },
+      { selector: 'img[src]', attr: 'src' },
+      { selector: 'img[srcset]', attr: 'srcset', type: 'srcset' },
+    ];
+
+    for (const t of targets) {
+      $(t.selector).each((_, el) => {
+        const $el = $(el);
+        const value = $el.attr(t.attr);
+        if (!value) return;
+        const rewritten = t.type === 'srcset' ? rewriteSrcset(value) : rewriteSingle(value);
+        $el.attr(t.attr, rewritten);
+      });
     }
+
+    if ($('head base').length === 0) {
+      if ($('head').length) {
+        $('head').prepend(`<base href="${base}">`);
+      } else {
+        $('html').prepend(`<head><base href="${base}"></head>`);
+      }
+    }
+
     return $.html();
   } catch {
     return html;

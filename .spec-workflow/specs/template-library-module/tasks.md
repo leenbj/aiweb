@@ -12,7 +12,7 @@
   - _Requirements: 需求/仅静态文件上传流程, 设计/Overview-当前阶段_
   - _Prompt: Implement the task for spec template-library-module, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Node.js 后端工程师 | Task: 在 zipImporter.ts 实现仅静态文件整页识别与落盘 | Restrictions: 路径 ensureRelative；slug 冲突追加短 id | _Leverage: 现有 zipImporter | _Requirements: 静态文件流程 | Success: pages[] 返回新 slugs，预览可渲染 | Instructions: 开始标记为 [-]，完成改为 [x]。_
 
-- [ ] 2. Importer：资源重写与 <base> 注入
+- [x] 2. Importer：资源重写与 <base> 注入
   - Files: backend/src/services/importer/zipImporter.ts
   - Steps:
     1) 使用 cheerio 重写 link/script/img 等相对路径为 `/uploads/u_{userId}/{importId}/...`；
@@ -22,7 +22,7 @@
   - _Requirements: 需求/预览重写, 设计/Importer 流程_
   - _Prompt: Implement the task for spec template-library-module... | Success: 预览无 404 资源错误 | Instructions: 状态更新。_
 
-- [ ] 3. Importer：启发式组件候选抽取
+- [x] 3. Importer：启发式组件候选抽取
   - Files: backend/src/services/importer/zipImporter.ts
   - Steps:
     1) 定义候选选择器集：header/footer/hero/pricing/features/team/service 等；
@@ -32,7 +32,7 @@
   - _Requirements: 需求/组件候选, 设计/Importer 流程_
   - _Prompt: Implement the task for spec template-library-module... | Success: 至少抽取 2 类候选；预览正常 | Instructions: 状态更新。_
 
-- [ ] 4. Templates 路由：上传导入端点与返回结构
+- [x] 4. Templates 路由：上传导入端点与返回结构
   - Files: backend/src/routes/templates.ts
   - Steps:
     1) `POST /api/templates/import-zip` 调用 zipImporter 并返回 `{ importId, pages, components, assetsBase }`；
