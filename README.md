@@ -47,8 +47,8 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/yourusername/ai-website-builder.git
-cd ai-website-builder
+git clone https://github.com/leenbj/aiweb.git
+cd aiweb
 
 # 安装依赖
 npm run install:all
@@ -276,7 +276,7 @@ systemctl status ai-website-builder-backend
 如果您遇到问题或有建议：
 
 1. 查看 [常见问题](docs/FAQ.md)
-2. 搜索或创建 [Issues](https://github.com/yourusername/ai-website-builder/issues)
+2. 搜索或创建 [Issues](https://github.com/leenbj/aiweb/issues)
 3. 查看 [文档](docs/)
 
 ## 🎉 感谢
