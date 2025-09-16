@@ -138,3 +138,34 @@ export interface DailyUsage {
     cost: number;
   }>;
 }
+
+export type TemplateType = 'page' | 'component' | 'theme';
+export type TemplateEngine = 'plain' | 'hbs' | 'react';
+
+export interface TemplateAIHintField {
+  description?: string;
+  example?: string;
+  required?: boolean;
+}
+
+export interface TemplateAIHints {
+  summary?: string;
+  recommendedUseCases?: string[];
+  keywords?: string[];
+  sections?: Record<string, TemplateAIHintField>;
+  prompts?: string[];
+}
+
+export interface TemplateManifest {
+  slug: string;
+  name: string;
+  version: string;
+  type: TemplateType;
+  engine: TemplateEngine;
+  description?: string;
+  entry?: string;
+  tags?: string[];
+  schema?: Record<string, any> | null;
+  aiHints?: TemplateAIHints;
+  assets?: string[];
+}

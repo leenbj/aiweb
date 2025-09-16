@@ -1,16 +1,17 @@
 import { create } from 'zustand';
 
-export type Route = 
-  | 'home' 
-  | 'login' 
-  | 'register' 
-  | 'dashboard' 
-  | 'editor' 
-  | 'settings' 
-  | 'websites' 
+export type Route =
+  | 'home'
+  | 'login'
+  | 'register'
+  | 'dashboard'
+  | 'editor'
+  | 'settings'
+  | 'websites'
   | 'deploy'
   | 'tokens'
   | 'templates'
+  | 'components'
   | 'uploadZip';
 
 interface RouterState {
@@ -33,6 +34,7 @@ export const useRouter = create<RouterState>((set) => ({
       deploy: '/deployments',
       tokens: '/tokens',
       templates: '/templates',
+      components: '/components',
       uploadZip: '/upload-zip'
     };
     
@@ -59,6 +61,7 @@ const initializeRouter = () => {
     '/deployments': 'deploy',
     '/tokens': 'tokens',
     '/templates': 'templates',
+    '/components': 'components',
     '/upload-zip': 'uploadZip'
   };
   

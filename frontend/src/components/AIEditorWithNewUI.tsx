@@ -22,9 +22,19 @@ import {
   Loader2
 } from 'lucide-react';
 import { templateSDK, type TemplateDTO } from '@/services/templateSDK';
+import { downloadTemplateZip } from '@/utils/templateDownload';
 
 type ViewMode = 'preview' | 'code';
 type DeviceMode = 'desktop' | 'tablet' | 'mobile';
+
+interface ComposeItem {
+  key: string;
+  slug: string;
+  name: string;
+  data: any;
+  schema?: any;
+  templateId?: string;
+}
 
 export function AIEditorWithNewUI() {
   // 获取网站ID：优先URL /editor/[id]，否则从localStorage回退
@@ -53,36 +63,49 @@ export function AIEditorWithNewUI() {
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
   const [composeOpen, setComposeOpen] = useState(false);
   const [buildOpen, setBuildOpen] = useState(false);
-  const [composePageSlug, setComposePageSlug] = useState('index');
-  const [composeComponents, setComposeComponents] = useState('');
-  const [composeLoading, setComposeLoading] = useState(false);
   const [composeThemeSlug, setComposeThemeSlug] = useState<string>('');
   const [pageOptions, setPageOptions] = useState<TemplateDTO[]>([]);
   const [compOptions, setCompOptions] = useState<TemplateDTO[]>([]);
   const [themeOptions, setThemeOptions] = useState<TemplateDTO[]>([]);
-  const [compFilter, setCompFilter] = useState('');
-  const [selectedComps, setSelectedComps] = useState<Set<string>>(new Set());
-  const [advancedJsonOpen, setAdvancedJsonOpen] = useState(false);
-  const [advancedJson, setAdvancedJson] = useState<string>('{}');
+  const [composePage, setComposePage] = useState<TemplateDTO | null>(null);
+  const [composePageData, setComposePageData] = useState<Record<string, any>>({});
+  const [composeComponentsState, setComposeComponentsState] = useState<ComposeItem[]>([]);
+  const [componentSearch, setComponentSearch] = useState('');
+  const [composePreviewLoading, setComposePreviewLoading] = useState(false);
+  const [composeError, setComposeError] = useState('');
+  const composeRequestRef = useRef(0);
+  const [lastExportTemplateId, setLastExportTemplateId] = useState<string | null>(null);
+  const [lastExportTemplateSlug, setLastExportTemplateSlug] = useState<string>('');
 
   useEffect(() => {
     if (!composeOpen) return;
+    let cancelled = false;
     (async () => {
       try {
         const pages = await templateSDK.search({ type: 'page', limit: 50 });
-        setPageOptions(pages.items || []);
+        if (!cancelled) {
+          const list = pages.items || [];
+          setPageOptions(list);
+          if (!composePage && list.length) {
+            setComposePage(list[0]);
+            setComposePageData(buildDefaultData(list[0].schemaJson));
+          }
+        }
       } catch {}
       try {
-        const comps = await templateSDK.search({ type: 'component', limit: 100 });
-        setCompOptions(comps.items || []);
+        const comps = await templateSDK.search({ type: 'component', limit: 120 });
+        if (!cancelled) setCompOptions(comps.items || []);
       } catch {}
       try {
         const th = await templateSDK.search({ type: 'theme', limit: 50 });
-        setThemeOptions(th.items || []);
-        if (!composeThemeSlug && th.items && th.items.length) setComposeThemeSlug(th.items[0].slug);
+        if (!cancelled) {
+          setThemeOptions(th.items || []);
+          if (!composeThemeSlug && th.items && th.items.length) setComposeThemeSlug(th.items[0].slug);
+        }
       } catch {}
     })();
-  }, [composeOpen]);
+    return () => { cancelled = true; };
+  }, [composeOpen, composePage, composeThemeSlug]);
   
   const {
     currentWebsite,
@@ -95,6 +118,56 @@ export function AIEditorWithNewUI() {
 
   const getDefaultHTML = () => {
     return ''; // 返回空字符串，不使用默认示例代码
+  };
+
+  const addComponentToCompose = (tpl: TemplateDTO) => {
+    setComposeComponentsState(prev => {
+      const exists = prev.find(item => item.slug === tpl.slug && item.templateId === tpl.id);
+      const key = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `comp_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+      const data = buildDefaultData(tpl.schemaJson);
+      const next: ComposeItem = {
+        key,
+        slug: tpl.slug,
+        name: tpl.name || tpl.slug,
+        data,
+        schema: tpl.schemaJson,
+        templateId: tpl.id,
+      };
+      return exists ? [...prev, { ...next, slug: `${tpl.slug}-${key.slice(0,4)}` }] : [...prev, next];
+    });
+  };
+
+  const updateComponentOrder = (key: string, delta: number) => {
+    setComposeComponentsState(prev => {
+      const index = prev.findIndex(item => item.key === key);
+      if (index === -1) return prev;
+      const target = index + delta;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = prev.slice();
+      const [item] = next.splice(index, 1);
+      next.splice(target, 0, item);
+      return next;
+    });
+  };
+
+  const removeComponentFromCompose = (key: string) => {
+    setComposeComponentsState(prev => prev.filter(item => item.key !== key));
+  };
+
+  const updateComponentData = (key: string, data: any) => {
+    setComposeComponentsState(prev => prev.map(item => (item.key === key ? { ...item, data } : item)));
+  };
+
+  const handleExportTemplate = async () => {
+    try {
+      if (!lastExportTemplateId) throw new Error('请先组合页面模板以生成可导出的版本');
+      await downloadTemplateZip(lastExportTemplateId, lastExportTemplateSlug || 'template');
+      toast.success('已开始下载模板 ZIP');
+    } catch (err: any) {
+      toast.error(err?.message || '导出失败');
+    }
   };
 
   // 若未保存过网站，构造一个保存流程
@@ -163,6 +236,44 @@ export function AIEditorWithNewUI() {
 
     loadWebsite();
   }, [id, getWebsite, setCurrentWebsite, navigate]);
+
+  useEffect(() => {
+    if (!composeOpen) return;
+    if (!composePage?.slug) return;
+    const current = ++composeRequestRef.current;
+    setComposePreviewLoading(true);
+    (async () => {
+      try {
+        const body = {
+          page: { slug: composePage.slug, data: composePageData },
+          components: composeComponentsState.map((item, idx) => ({
+            slot: item.slug || `slot-${idx}`,
+            slug: item.slug,
+            data: item.data,
+          })),
+          theme: composeThemeSlug || undefined,
+        };
+        const result = await templateSDK.compose(body);
+        if (composeRequestRef.current === current) {
+          setContent(result.html);
+          setViewMode('preview');
+          setComposeError('');
+          if (composePage.id) {
+            setLastExportTemplateId(composePage.id);
+            setLastExportTemplateSlug(composePage.slug);
+          }
+        }
+      } catch (err: any) {
+        if (composeRequestRef.current === current) {
+          setComposeError(err?.message || '组合预览失败');
+        }
+      } finally {
+        if (composeRequestRef.current === current) {
+          setComposePreviewLoading(false);
+        }
+      }
+    })();
+  }, [composeOpen, composePage, composeComponentsState, composePageData, composeThemeSlug]);
 
   const handleContentChange = (newContent: string) => {
     setContent(newContent);
@@ -442,9 +553,9 @@ export function AIEditorWithNewUI() {
                 <Button variant="outline" size="sm" onClick={async () => { const savedId = await ensureWebsiteSaved(); setBuildOpen(true); }}>
                   构建并预览
                 </Button>
-                <Button variant="outline" size="sm" className="border-gray-200">
+                <Button variant="outline" size="sm" className="border-gray-200" onClick={handleExportTemplate} disabled={!lastExportTemplateId}>
                   <Download className="w-4 h-4 mr-2" />
-                  下载
+                  导出 ZIP
                 </Button>
                 <Button 
                   onClick={handleSave} 
@@ -512,100 +623,118 @@ export function AIEditorWithNewUI() {
         </div>
         {composeOpen && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setComposeOpen(false)}>
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-xl p-5" onClick={(e)=>e.stopPropagation()}>
-              <div className="text-lg font-medium mb-3">模板组合预览</div>
-              <div className="space-y-3">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 overflow-y-auto max-h-[90vh]" onClick={(e)=>e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
                 <div>
-                  <label className="block text-sm mb-1">页面模板</label>
-                  <div className="flex gap-2">
-                    <select value={composePageSlug} onChange={e=>setComposePageSlug(e.target.value)} className="border rounded px-3 py-2 flex-1">
-                      <option value="">请选择页面模板（或手动输入）</option>
+                  <div className="text-lg font-medium">模板组合预览</div>
+                  <div className="text-xs text-gray-500">选择页面与组件，实时生成预览</div>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => setComposeOpen(false)}>关闭</Button>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm mb-1">页面模板</label>
+                    <select
+                      value={composePage?.slug || ''}
+                      onChange={(e) => {
+                        const slug = e.target.value;
+                        const tpl = pageOptions.find(p => p.slug === slug) || null;
+                        setComposePage(tpl);
+                        setComposePageData(buildDefaultData(tpl?.schemaJson));
+                      }}
+                      className="border rounded px-3 py-2 w-full"
+                    >
+                      <option value="">请选择页面模板</option>
                       {pageOptions.map(p => (
-                        <option key={p.slug} value={p.slug}>{p.name || p.slug}</option>
+                        <option key={p.id} value={p.slug}>{p.name || p.slug}</option>
                       ))}
                     </select>
-                    <input value={composePageSlug} onChange={e=>setComposePageSlug(e.target.value)} className="w-48 border rounded px-3 py-2" placeholder="自定义 slug" />
                   </div>
-                </div>
-                <div>
-                  <label className="block text-sm mb-1">主题（可选）</label>
-                  <div className="flex gap-2">
-                    <select value={composeThemeSlug} onChange={e=>setComposeThemeSlug(e.target.value)} className="border rounded px-3 py-2 flex-1">
+                  {composePage?.schemaJson && (
+                    <div className="border rounded p-3">
+                      <div className="text-sm font-medium mb-2">页面数据</div>
+                      <SchemaEditor
+                        schema={composePage.schemaJson}
+                        value={composePageData}
+                        onChange={setComposePageData}
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm mb-1">主题（可选）</label>
+                    <select value={composeThemeSlug} onChange={e=>setComposeThemeSlug(e.target.value)} className="border rounded px-3 py-2 w-full">
                       <option value="">使用默认主题</option>
                       {themeOptions.map(t => (
-                        <option key={t.slug} value={t.slug}>{t.name || t.slug}</option>
+                        <option key={t.id} value={t.slug}>{t.name || t.slug}</option>
                       ))}
                     </select>
-                    <input value={composeThemeSlug} onChange={e=>setComposeThemeSlug(e.target.value)} className="w-48 border rounded px-3 py-2" placeholder="自定义 theme slug" />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm mb-1">组件 slugs（逗号分隔）</label>
-                  <input value={composeComponents} onChange={e=>setComposeComponents(e.target.value)} className="w-full border rounded px-3 py-2" placeholder="如：header,hero,pricing-table,footer" />
-                </div>
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-sm">从组件库选择</label>
-                    <input value={compFilter} onChange={e=>setCompFilter(e.target.value)} className="border rounded px-2 py-1 text-sm" placeholder="搜索组件" />
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm mb-1">添加组件</label>
+                    <input
+                      value={componentSearch}
+                      onChange={e=>setComponentSearch(e.target.value)}
+                      className="border rounded px-3 py-2 w-full"
+                      placeholder="搜索组件名称或 slug"
+                    />
                   </div>
-                  <div className="max-h-56 overflow-auto border rounded p-2 grid grid-cols-2 gap-2">
+                  <div className="max-h-64 overflow-auto border rounded p-2 space-y-1">
                     {compOptions
-                      .filter(c => !compFilter || c.slug.includes(compFilter) || (c.name||'').includes(compFilter))
-                      .map(c => {
-                        const checked = selectedComps.has(c.slug);
-                        return (
-                          <label key={c.slug} className={`flex items-center gap-2 text-sm border rounded px-2 py-1 cursor-pointer ${checked? 'bg-blue-50 border-blue-200' : ''}`}>
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => {
-                                setSelectedComps(prev => {
-                                  const next = new Set(prev);
-                                  if (next.has(c.slug)) next.delete(c.slug); else next.add(c.slug);
-                                  return next;
-                                });
-                              }}
-                            />
-                            <span className="truncate" title={c.slug}>{c.name || c.slug}</span>
-                          </label>
-                        )
-                      })}
+                      .filter(c => {
+                        if (!componentSearch) return true;
+                        const keyword = componentSearch.toLowerCase();
+                        return (c.slug || '').toLowerCase().includes(keyword) || (c.name || '').toLowerCase().includes(keyword);
+                      })
+                      .map(c => (
+                        <div key={c.id} className="flex items-center justify-between text-sm border rounded px-2 py-1">
+                          <div className="truncate" title={c.slug}>{c.name || c.slug}</div>
+                          <Button variant="ghost" size="sm" onClick={() => addComponentToCompose(c)}>添加</Button>
+                        </div>
+                      ))}
                     {compOptions.length === 0 && (
                       <div className="text-xs text-gray-500">暂无组件，请先导入 ZIP</div>
                     )}
                   </div>
                 </div>
-                <div>
-                  <button className="text-xs text-blue-600 underline" onClick={()=>setAdvancedJsonOpen(v=>!v)}>
-                    {advancedJsonOpen ? '隐藏高级参数 JSON' : '显示高级参数 JSON'}
-                  </button>
-                  {advancedJsonOpen && (
-                    <textarea value={advancedJson} onChange={e=>setAdvancedJson(e.target.value)} className="mt-2 w-full h-32 border rounded px-3 py-2 font-mono text-xs" placeholder='{"hero":{"title":"..."}}' />
-                  )}
-                </div>
               </div>
-              <div className="mt-4 flex items-center justify-end gap-2">
-                <Button variant="ghost" onClick={()=>setComposeOpen(false)}>取消</Button>
-                <Button onClick={async ()=>{
-                  setComposeLoading(true);
-                  try {
-                    const set = new Set<string>([...selectedComps]);
-                    (composeComponents||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(s=>set.add(s));
-                    let params: any = {};
-                    try { params = JSON.parse(advancedJson || '{}'); } catch { params = {}; }
-                    const comps = Array.from(set).map(slug=>({ slot: slug, slug, data: params[slug] || {} }));
-                    const r = await templateSDK.compose({ page: { slug: composePageSlug, data: params.page || {} }, components: comps, theme: composeThemeSlug || undefined });
-                    setContent(r.html);
-                    setViewMode('preview');
-                    setComposeOpen(false);
-                  } catch (e:any) {
-                    toast.error(e?.message || '组合预览失败');
-                  } finally {
-                    setComposeLoading(false);
-                  }
-                }} disabled={composeLoading}>
-                  {composeLoading ? '生成中…' : '生成预览'}
-                </Button>
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium">已选组件</div>
+                  {composePreviewLoading && <div className="text-xs text-blue-600">生成预览中…</div>}
+                </div>
+                {composeError && <div className="text-xs text-red-500">{composeError}</div>}
+                {composeComponentsState.length === 0 && (
+                  <div className="text-xs text-gray-500 border border-dashed border-gray-200 rounded p-4 text-center">尚未选择组件</div>
+                )}
+                <div className="space-y-3">
+                  {composeComponentsState.map((item, index) => (
+                    <div key={item.key} className="border rounded p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-medium text-sm">{item.name}</div>
+                          <div className="text-xs text-gray-500">{item.slug}</div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => updateComponentOrder(item.key, -1)} disabled={index === 0}>上移</Button>
+                          <Button variant="ghost" size="sm" onClick={() => updateComponentOrder(item.key, 1)} disabled={index === composeComponentsState.length - 1}>下移</Button>
+                          <Button variant="ghost" size="sm" onClick={() => removeComponentFromCompose(item.key)}>删除</Button>
+                        </div>
+                      </div>
+                      {item.schema ? (
+                        <SchemaEditor
+                          schema={item.schema}
+                          value={item.data}
+                          onChange={(val) => updateComponentData(item.key, val)}
+                        />
+                      ) : (
+                        <div className="text-xs text-gray-500">该组件无结构化 schema</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -622,6 +751,143 @@ export function AIEditorWithNewUI() {
       {/* 代码生成浮动窗口 */}
       {/* 已移除悬浮代码窗口，滚动展示在对话区域内实现 */}
     </div>
+  );
+}
+
+function buildDefaultData(schema?: any): any {
+  if (!schema) return {};
+  if (schema.default !== undefined) return schema.default;
+  const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+  switch (type) {
+    case 'object': {
+      const props = schema.properties || {};
+      const result: Record<string, any> = {};
+      Object.keys(props).forEach((key) => {
+        result[key] = buildDefaultData(props[key]);
+      });
+      return result;
+    }
+    case 'array': {
+      const itemSchema = schema.items || { type: 'string' };
+      if (itemSchema.type === 'object') {
+        return [buildDefaultData(itemSchema)];
+      }
+      return [];
+    }
+    case 'number':
+    case 'integer':
+      return 0;
+    case 'boolean':
+      return false;
+    case 'string':
+      return '';
+    default:
+      return {};
+  }
+}
+
+interface SchemaEditorProps {
+  schema: any;
+  value: any;
+  onChange: (value: any) => void;
+}
+
+function SchemaEditor({ schema, value, onChange }: SchemaEditorProps) {
+  return <div className="space-y-2">{renderSchemaFields(schema, value, onChange)}</div>;
+}
+
+function renderSchemaFields(schema: any, value: any, onChange: (value: any) => void, path = ''): React.ReactNode {
+  if (!schema) return null;
+  const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+  if (type === 'object') {
+    const props = schema.properties || {};
+    const current = (value && typeof value === 'object') ? value : {};
+    return Object.keys(props).map((key) => {
+      const childSchema = props[key];
+      const childValue = current[key] ?? buildDefaultData(childSchema);
+      const handleChildChange = (val: any) => {
+        onChange({ ...current, [key]: val });
+      };
+      return (
+        <div key={`${path}.${key}`} className="space-y-1">
+          <label className="text-xs text-gray-600">{childSchema?.title || key}</label>
+          {renderSchemaFields(childSchema, childValue, handleChildChange, `${path}.${key}`)}
+        </div>
+      );
+    });
+  }
+  if (type === 'array') {
+    const itemsSchema = schema.items || { type: 'string' };
+    const currentArray = Array.isArray(value) ? value : buildDefaultData(schema);
+    if (itemsSchema.type === 'object') {
+      return (
+        <textarea
+          className="w-full border rounded px-2 py-1 text-xs font-mono"
+          rows={4}
+          value={JSON.stringify(currentArray, null, 2)}
+          onChange={(e) => {
+            try {
+              const parsed = JSON.parse(e.target.value || '[]');
+              onChange(Array.isArray(parsed) ? parsed : currentArray);
+            } catch {
+              onChange(currentArray);
+            }
+          }}
+        />
+      );
+    }
+    return (
+      <textarea
+        className="w-full border rounded px-2 py-1 text-xs font-mono"
+        rows={3}
+        value={(currentArray || []).join('\n')}
+        onChange={(e) => {
+          const lines = e.target.value.split(/\n+/).map(line => line.trim()).filter(Boolean);
+          onChange(lines);
+        }}
+      />
+    );
+  }
+  if (type === 'boolean') {
+    return (
+      <label className="inline-flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!value} onChange={e => onChange(e.target.checked)} />
+        <span>{schema.description || '启用'}</span>
+      </label>
+    );
+  }
+  if (type === 'number' || type === 'integer') {
+    return (
+      <input
+        type="number"
+        className="border rounded px-2 py-1 w-full text-sm"
+        value={value ?? 0}
+        onChange={e => onChange(Number(e.target.value))}
+      />
+    );
+  }
+  if (schema.enum && Array.isArray(schema.enum)) {
+    return (
+      <select
+        className="border rounded px-2 py-1 w-full text-sm"
+        value={value ?? ''}
+        onChange={e => onChange(e.target.value)}
+      >
+        <option value="">请选择</option>
+        {schema.enum.map((opt: any) => (
+          <option key={String(opt)} value={String(opt)}>{String(opt)}</option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <input
+      type="text"
+      className="border rounded px-2 py-1 w-full text-sm"
+      value={value ?? ''}
+      onChange={e => onChange(e.target.value)}
+      placeholder={schema.description || ''}
+    />
   );
 }
 

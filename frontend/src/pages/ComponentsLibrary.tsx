@@ -1,37 +1,29 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { templateSDK, TemplateDTO } from '@/services/templateSDK';
 import { toast } from 'react-hot-toast';
-import { TemplateType } from '@/shared/types';
 import { downloadTemplateZip } from '@/utils/templateDownload';
 
-const typeTabs: Array<{ value: TemplateType; label: string }> = [
-  { value: 'page', label: '页面模板' },
-  { value: 'component', label: '组件模板' },
-  { value: 'theme', label: '主题模板' },
-];
-
-export default function TemplateLibrary() {
+export default function ComponentsLibrary() {
   const [items, setItems] = useState<TemplateDTO[]>([]);
   const [q, setQ] = useState('');
-  const [type, setType] = useState<TemplateType>('page');
+  const [tag, setTag] = useState<string>('all');
   const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const result = await templateSDK.search({ query: q.trim() || undefined, type, limit: 30 });
+        const params: any = { query: q.trim() || undefined, type: 'component' as const, limit: 60 };
+        if (tag !== 'all') params.tags = [tag];
+        const result = await templateSDK.search(params);
         if (!cancelled) {
           setItems(result.items || []);
-          setTotal(result.total || 0);
         }
-      } catch (e: any) {
+      } catch (err: any) {
         if (!cancelled) {
-          toast.error(e?.message || '加载模板库失败');
+          toast.error(err?.message || '加载组件库失败');
           setItems([]);
-          setTotal(0);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -40,20 +32,20 @@ export default function TemplateLibrary() {
     return () => {
       cancelled = true;
     };
-  }, [q, type]);
+  }, [q, tag]);
 
-  const emptyMessage = useMemo(() => {
-    if (loading) return '加载中…';
-    if (type === 'component') return '暂无组件模板，请先导入 ZIP 包';
-    if (type === 'theme') return '暂无主题模板';
-    return '暂无模板';
-  }, [loading, type]);
+  const tags = useMemo(() => {
+    const set = new Set<string>();
+    items.forEach(item => {
+      (item.tags || []).forEach(t => set.add(t));
+    });
+    return Array.from(set);
+  }, [items]);
 
   const handleExport = async (tpl: TemplateDTO) => {
     try {
-      if (!tpl.id) throw new Error('缺少模板ID');
-      await downloadTemplateZip(tpl.id, tpl.slug || tpl.name || 'template');
-      toast.success('已开始下载模板 ZIP');
+      await downloadTemplateZip(tpl.id, tpl.slug || tpl.name || 'component');
+      toast.success('已开始下载组件 ZIP');
     } catch (err: any) {
       toast.error(err?.message || '导出失败');
     }
@@ -63,17 +55,23 @@ export default function TemplateLibrary() {
     <div className="p-6 space-y-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-xl font-semibold">模板库</h1>
-          <p className="text-sm text-gray-500">共 {total} 个模板，可按类型浏览并导出 ZIP</p>
+          <h1 className="text-xl font-semibold">组件库</h1>
+          <p className="text-sm text-gray-500">筛选组件模板并支持一键导出</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {typeTabs.map(tab => (
+          <button
+            className={`px-3 py-1 rounded border text-sm ${tag === 'all' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:border-blue-300'}`}
+            onClick={() => setTag('all')}
+          >
+            全部
+          </button>
+          {tags.map(t => (
             <button
-              key={tab.value}
-              className={`px-3 py-1 rounded border text-sm ${type === tab.value ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:border-blue-300'}`}
-              onClick={() => setType(tab.value)}
+              key={t}
+              className={`px-3 py-1 rounded border text-sm ${tag === t ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:border-blue-300'}`}
+              onClick={() => setTag(t)}
             >
-              {tab.label}
+              {t}
             </button>
           ))}
         </div>
@@ -82,12 +80,12 @@ export default function TemplateLibrary() {
         <input
           value={q}
           onChange={e=>setQ(e.target.value)}
-          placeholder="搜索模板…"
+          placeholder="搜索组件…"
           className="border px-3 py-2 rounded w-full md:max-w-sm"
         />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {items.map((t) => {
+        {items.map(t => {
           const isFullDoc = /<html[\s>]/i.test(t.previewHtml || '') || /<!DOCTYPE/i.test(t.previewHtml || '');
           const previewDoc = isFullDoc
             ? t.previewHtml || ''
@@ -95,20 +93,14 @@ export default function TemplateLibrary() {
           return (
             <div key={t.id} className="border rounded p-3 flex flex-col gap-2">
               <div className="flex items-center justify-between text-xs text-gray-500">
-                <span>{t.type} · {t.engine}</span>
-                <button
-                  className="text-blue-600 hover:underline"
-                  onClick={() => handleExport(t)}
-                >
-                  导出 ZIP
-                </button>
+                <span>{t.slug}</span>
+                <button className="text-blue-600 hover:underline" onClick={() => handleExport(t)}>导出</button>
               </div>
               <div className="font-medium truncate" title={t.name}>{t.name}</div>
-              <div className="text-xs text-gray-500 truncate" title={t.slug}>{t.slug}</div>
               {t.tags && t.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1">
-                  {t.tags.map(tag => (
-                    <span key={tag} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{tag}</span>
+                  {t.tags.map(tagName => (
+                    <span key={tagName} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{tagName}</span>
                   ))}
                 </div>
               )}
@@ -116,15 +108,15 @@ export default function TemplateLibrary() {
                 <iframe
                   className="mt-1 w-full h-64 border rounded"
                   srcDoc={previewDoc}
-                  title={`preview-${t.slug}`}
+                  title={`component-${t.slug}`}
                 />
               )}
             </div>
           );
         })}
         {items.length === 0 && (
-          <div className="text-gray-500 col-span-full text-center border border-dashed border-gray-200 rounded py-10">
-            {emptyMessage}
+          <div className="col-span-full text-gray-500 text-center border border-dashed border-gray-200 rounded py-10">
+            {loading ? '加载中…' : '暂无组件模板'}
           </div>
         )}
       </div>

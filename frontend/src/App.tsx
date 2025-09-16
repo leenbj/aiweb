@@ -10,6 +10,7 @@ import { DeploymentManagement } from './pages/DeploymentManagement';
 import { TokenStats } from './pages/TokenStats';
 import TemplateLibrary from './pages/TemplateLibrary';
 import UploadZip from './pages/UploadZip';
+import ComponentsLibrary from './pages/ComponentsLibrary';
 
 // Import new components
 import { DashboardSidebar } from './components/DashboardSidebar';
@@ -75,6 +76,8 @@ export default function App() {
         return <TokenStats />;
       case 'templates':
         return <TemplateLibrary />;
+      case 'components':
+        return <ComponentsLibrary />;
       case 'uploadZip':
         return <UploadZip />;
       default:

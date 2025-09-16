@@ -1,19 +1,24 @@
-export type TemplateType = 'component'|'page'|'theme';
-export type TemplateEngine = 'hbs'|'react'|'plain';
+import type { TemplateType, TemplateEngine } from '@/shared/types';
 
 export interface TemplateDTO {
-  id: string; type: TemplateType; name: string; slug: string;
-  engine: TemplateEngine; description?: string; tags: string[];
-  version: string; schemaJson?: any; tokensJson?: any; previewHtml?: string;
+  id: string;
+  type: TemplateType;
+  name: string;
+  slug: string;
+  engine: TemplateEngine;
+  description?: string;
+  tags: string[];
+  version: string;
+  schemaJson?: any;
+  tokensJson?: any;
+  previewHtml?: string;
 }
 
 function baseURL() {
-  // 走 vite 代理 /api
   return '/api';
 }
 
-function authHeaders() {
-  // 优先从 zustand 持久化中读取
+function authHeaders(asJson = true) {
   let token = '';
   try {
     const raw = localStorage.getItem('auth-storage');
@@ -23,7 +28,8 @@ function authHeaders() {
     }
   } catch {}
   if (!token) token = localStorage.getItem('token') || '';
-  const h: Record<string,string> = { 'Content-Type': 'application/json' };
+  const h: Record<string, string> = {};
+  if (asJson) h['Content-Type'] = 'application/json';
   if (token) h['Authorization'] = `Bearer ${token}`;
   return h;
 }
@@ -35,12 +41,12 @@ export class TemplateSDK {
       if (Array.isArray(v)) v.forEach(x=>q.append(k, String(x)));
       else if (v!=null) q.set(k, String(v));
     });
-    const r = await fetch(`${baseURL()}/templates/search?${q.toString()}`, { headers: authHeaders() });
+    const r = await fetch(`${baseURL()}/templates/search?${q.toString()}`, { headers: authHeaders(false) });
     return r.json() as Promise<{ items: TemplateDTO[]; total: number }>;
   }
 
   async get(slug: string) {
-    const r = await fetch(`${baseURL()}/templates/${slug}`, { headers: authHeaders() });
+    const r = await fetch(`${baseURL()}/templates/${slug}`, { headers: authHeaders(false) });
     return r.json() as Promise<TemplateDTO & { code?: string }>;
   }
 
@@ -52,6 +58,15 @@ export class TemplateSDK {
   async compose(body: { page: { slug: string; data?: any }; components: { slot: string; slug: string; data?: any }[]; theme?: string }) {
     const r = await fetch(`${baseURL()}/templates/compose`, { method:'POST', headers:authHeaders(), body:JSON.stringify(body) });
     return r.json() as Promise<{ html: string; css?: string; js?: string; meta?: any }>;
+  }
+
+  async export(templateId: string) {
+    const r = await fetch(`${baseURL()}/templates/${templateId}/export`, { method: 'GET', headers: authHeaders(false) });
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(text || '导出失败');
+    }
+    return r.blob();
   }
 }
 
