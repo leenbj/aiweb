@@ -2,7 +2,7 @@
 
 说明：针对仅静态文件上传的场景，细化为可执行的最小步骤。
 
-- [ ] 1. Importer：仅静态文件整页识别与落盘
+- [x] 1. Importer：仅静态文件整页识别与落盘
   - Files: backend/src/services/importer/zipImporter.ts
   - Steps:
     1) 遍历 ZIP 条目，过滤白名单后缀与路径穿越；

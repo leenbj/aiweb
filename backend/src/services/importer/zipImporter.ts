@@ -1,19 +1,19 @@
-import { logger } from '../../utils/logger';
-import { prisma } from '../../database';
-import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs/promises';
 import AdmZip from 'adm-zip';
 import * as cheerio from 'cheerio';
+
 import Handlebars from 'handlebars';
 import { parametrizeComponentHtml } from './hbsParametrize';
 import { extractThemeTokens } from './themeExtractor';
 import { addMemoryTemplate } from '../templateMemory';
 import { ensureRelative } from '../../utils/file';
 
+
 const UPLOADS_ROOT = process.env.UPLOADS_ROOT || process.env.UPLOAD_PATH || './uploads';
 
 const ALLOWED_EXTS = new Set([
+
   '.html', '.htm', '.css', '.js', '.mjs', '.json', '.jpg', '.jpeg', '.png', '.gif', '.svg',
   '.webp', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.eot', '.txt', '.map', '.webmanifest',
 ]);
@@ -29,6 +29,7 @@ function safeJoinUploads(baseDir: string, relPath: string) {
   return path.resolve(baseDir, normalized);
 }
 
+
 export interface ImportResult {
   importId: string;
   pages: string[];
@@ -37,8 +38,10 @@ export interface ImportResult {
   assetsBase?: string;
 }
 
+
 export async function importZipToTemplates(zipBuffer: Buffer, userId: string, opts?: { requestId?: string }): Promise<ImportResult> {
   const importId = `imp_${uuidv4().slice(0,8)}`;
+
   const baseDir = path.resolve(UPLOADS_ROOT, `u_${userId}`, importId);
   await fs.mkdir(baseDir, { recursive: true });
 
@@ -52,6 +55,7 @@ export async function importZipToTemplates(zipBuffer: Buffer, userId: string, op
 
   const pages: string[] = [];
   const components: string[] = [];
+
   const skipped: string[] = [];
   let assetsCount = 0;
   let cssBundle = '';
@@ -189,8 +193,13 @@ export async function importZipToTemplates(zipBuffer: Buffer, userId: string, op
         if (lower.endsWith('.css')) {
           try { cssBundle += content.toString('utf8') + '\n'; } catch {}
         }
+
       }
+
+      pages.push(slug);
+      continue;
     }
+
   } catch (err) {
     logger.error('zipImporter.failed', { ...logMeta, error: (err as any)?.message });
     throw err;
@@ -224,14 +233,16 @@ export async function importZipToTemplates(zipBuffer: Buffer, userId: string, op
   const duration = Date.now() - startedAt;
   logger.info('zipImporter.success', { ...logMeta, pages: pages.length, components: components.length, assets: assetsCount, skipped: skipped.length, durationMs: duration });
 
+
   return {
     importId,
     pages,
     components,
-    theme: themeSlug || 'default',
-    assetsBase: `/uploads/u_${userId}/${importId}/`,
+    theme: undefined,
+    assetsBase,
   };
 }
+
 
 function buildSampleData(schema?: any) {
   const data: any = {
@@ -255,35 +266,81 @@ function buildSampleData(schema?: any) {
     }
   } else {
     data.items = ['特性一', '特性二', '特性三'];
+
   }
-  return data;
+  return normalized;
 }
 
-function tryCompile(hbsCode: string, ctx: any) {
-  try {
-    const compiled = Handlebars.compile(hbsCode);
-    return compiled(ctx);
-  } catch {
-    return hbsCode;
+function safeJoinUploads(baseDir: string, relativePath: string): string {
+  const target = path.resolve(baseDir, relativePath);
+  const normalizedBase = path.resolve(baseDir);
+  if (target === normalizedBase) return target;
+  const prefix = normalizedBase.endsWith(path.sep) ? normalizedBase : `${normalizedBase}${path.sep}`;
+  if (!target.startsWith(prefix)) {
+    throw new Error('Path traversal detected');
   }
+  return target;
 }
 
-function rewriteAssets(html: string, assetsBase: string) {
+function getExtension(filePath: string): string {
+  return path.extname(filePath || '').toLowerCase();
+}
+
+function extractTitle(html: string): string | null {
   try {
     const $ = cheerio.load(html);
-    $('link[rel="stylesheet"][href], script[src], img[src]').each((_, el) => {
-      const $el = $(el);
-      const attr = $el.is('link') ? 'href' : 'src';
-      const val = $el.attr(attr) || '';
-      if (!val || /^https?:/i.test(val) || /^data:/i.test(val) || val.startsWith('/uploads/')) return;
-      const clean = val.replace(/^\.?\//, '').replace(/^\//, '');
-      $el.attr(attr, assetsBase.replace(/\/$/, '/') + clean);
+    const title = $('title').first().text().trim();
+    return title || null;
+  } catch (error) {
+    logger.warn('zipImporter: failed to extract title', {
+      error: error instanceof Error ? error.message : String(error),
     });
+
     if ($('head').length && $('head base').length === 0) {
       $('head').prepend(`<base href="${assetsBase.replace(/\/$/, '/')}">`);
     }
     return $.html();
   } catch {
     return html;
+
   }
+
+  seen.add(candidate);
+  return candidate;
 }
+
+async function slugExists(slug: string): Promise<boolean> {
+  try {
+    const existing = await prisma.template.findUnique({ where: { slug } });
+    if (existing) return true;
+  } catch (error) {
+    logger.debug('zipImporter: failed to verify slug via prisma', {
+      slug,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return Boolean(getMemoryTemplateBySlug(slug));
+}
+
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+}
+
+function toDisplayName(input: string): string {
+  const cleaned = input.replace(/[-_]+/g, ' ').trim();
+  if (!cleaned) return input;
+  return cleaned
+    .split(' ')
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function slugToName(slug: string): string {
+  return toDisplayName(slug);
+}
+
