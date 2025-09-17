@@ -1,17 +1,19 @@
-import { logger } from '../../utils/logger';
-import { prisma } from '../../database';
-import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs/promises';
 import AdmZip from 'adm-zip';
 import * as cheerio from 'cheerio';
+
 import type { CheerioAPI } from 'cheerio';
+
 import Handlebars from 'handlebars';
 import { parametrizeComponentHtml } from './hbsParametrize';
 import { extractThemeTokens } from './themeExtractor';
 import { addMemoryTemplate } from '../templateMemory';
+import { ensureRelative } from '../../utils/file';
+
 
 const UPLOADS_ROOT = process.env.UPLOADS_ROOT || process.env.UPLOAD_PATH || './uploads';
+
 
 const ALLOWED_EXTS = new Set<string>([
   '.html',
@@ -58,6 +60,7 @@ const COMPONENT_CANDIDATES: Array<{ selector: string; slug: string }> = [
   { selector: '[class*=service]:first', slug: 'service-block' },
 ];
 
+
 export interface ImportResult {
   importId: string;
   pages: string[];
@@ -66,16 +69,25 @@ export interface ImportResult {
   assetsBase?: string;
 }
 
+
 export async function importZipToTemplates(zipBuffer: Buffer, userId: string): Promise<ImportResult> {
   const importId = `imp_${uuidv4().slice(0, 8)}`;
+
   const baseDir = path.resolve(UPLOADS_ROOT, `u_${userId}`, importId);
   await fs.mkdir(baseDir, { recursive: true });
 
+  const requestId = opts?.requestId;
+  const logMeta = { importId, userId, requestId };
+  const startedAt = Date.now();
+
   const zip = new AdmZip(zipBuffer);
   const entries = zip.getEntries();
+  logger.info('zipImporter.start', { ...logMeta, entries: entries.length });
 
   const pages: string[] = [];
+
   const componentSet = new Set<string>();
+
   let cssBundle = '';
   const takenSlugs = new Set<string>();
   const assetsBase = `/uploads/u_${userId}/${importId}/`;
@@ -100,6 +112,7 @@ export async function importZipToTemplates(zipBuffer: Buffer, userId: string): P
 
     const ext = path.extname(relativePath).toLowerCase();
     const content = entry.getData();
+
 
     if (HTML_EXTS.has(ext)) {
       const html = content.toString('utf8');
@@ -154,11 +167,21 @@ export async function importZipToTemplates(zipBuffer: Buffer, userId: string): P
         } catch (err) {
           logger.warn('failed to read css for theme extraction', { entry: relativePath, error: (err as Error)?.message });
         }
+
       }
+
+      pages.push(slug);
+      continue;
     }
+
+  } catch (err) {
+    logger.error('zipImporter.failed', { ...logMeta, error: (err as any)?.message });
+    throw err;
   }
 
+
   let themeSlug: string | undefined;
+
   try {
     const { tokens, css } = extractThemeTokens(cssBundle);
     if (tokens && Object.keys(tokens).length) {
@@ -182,6 +205,7 @@ export async function importZipToTemplates(zipBuffer: Buffer, userId: string): P
       }
     }
   } catch (err) {
+
     logger.warn('theme token extraction failed', { importId, error: (err as Error)?.message });
   }
 
@@ -192,14 +216,18 @@ export async function importZipToTemplates(zipBuffer: Buffer, userId: string): P
     components: componentList.length,
   });
 
+
   return {
     importId,
     pages,
+
     components: componentList,
     theme: themeSlug || 'default',
+
     assetsBase,
   };
 }
+
 
 function isAllowed(relPath: string) {
   const ext = path.extname(relPath).toLowerCase();
@@ -322,6 +350,7 @@ async function slugExists(slug: string) {
   }
 }
 
+
 function buildSampleData(schema?: any) {
   const data: any = {
     title: '示例标题',
@@ -345,18 +374,27 @@ function buildSampleData(schema?: any) {
     }
   } else {
     data.items = ['特性一', '特性二', '特性三'];
+
   }
+
 
   return data;
+
 }
 
-function tryCompile(hbsCode: string, ctx: any) {
-  try {
-    const compiled = Handlebars.compile(hbsCode);
-    return compiled(ctx);
-  } catch {
-    return hbsCode;
+function safeJoinUploads(baseDir: string, relativePath: string): string {
+  const target = path.resolve(baseDir, relativePath);
+  const normalizedBase = path.resolve(baseDir);
+  if (target === normalizedBase) return target;
+  const prefix = normalizedBase.endsWith(path.sep) ? normalizedBase : `${normalizedBase}${path.sep}`;
+  if (!target.startsWith(prefix)) {
+    throw new Error('Path traversal detected');
   }
+  return target;
+}
+
+function getExtension(filePath: string): string {
+  return path.extname(filePath || '').toLowerCase();
 }
 
 function rewriteAssets(html: string, assetsBase: string) {
@@ -407,6 +445,7 @@ function rewriteAssets(html: string, assetsBase: string) {
         const rewritten = t.type === 'srcset' ? rewriteSrcset(value) : rewriteSingle(value);
         $el.attr(t.attr, rewritten);
       });
+
     }
 
     if ($('head base').length === 0) {
@@ -420,5 +459,45 @@ function rewriteAssets(html: string, assetsBase: string) {
     return $.html();
   } catch {
     return html;
+
   }
+
+  seen.add(candidate);
+  return candidate;
 }
+
+async function slugExists(slug: string): Promise<boolean> {
+  try {
+    const existing = await prisma.template.findUnique({ where: { slug } });
+    if (existing) return true;
+  } catch (error) {
+    logger.debug('zipImporter: failed to verify slug via prisma', {
+      slug,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return Boolean(getMemoryTemplateBySlug(slug));
+}
+
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+}
+
+function toDisplayName(input: string): string {
+  const cleaned = input.replace(/[-_]+/g, ' ').trim();
+  if (!cleaned) return input;
+  return cleaned
+    .split(' ')
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function slugToName(slug: string): string {
+  return toDisplayName(slug);
+}
+

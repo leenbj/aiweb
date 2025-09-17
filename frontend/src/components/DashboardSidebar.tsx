@@ -20,7 +20,8 @@ import {
   Crown,
   ChevronRight,
   ChevronLeft,
-  Menu
+  Menu,
+  Layers
 } from 'lucide-react';
 
 const navigation = [
@@ -59,6 +60,12 @@ const navigation = [
     route: 'templates' as Route,
     icon: Code,
     description: '浏览与检索模板'
+  },
+  {
+    name: '组件库',
+    route: 'components' as Route,
+    icon: Layers,
+    description: '浏览与筛选组件'
   },
   {
     name: 'ZIP 导入',

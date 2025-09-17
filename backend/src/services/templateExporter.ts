@@ -1,10 +1,13 @@
 import path from 'path';
 import fs from 'fs/promises';
+
 import { Readable } from 'stream';
+
 import AdmZip from 'adm-zip';
 import * as cheerio from 'cheerio';
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
+
 
 const UPLOADS_ROOT = process.env.UPLOADS_ROOT || process.env.UPLOAD_PATH || './uploads';
 
@@ -24,10 +27,12 @@ export async function exportTemplateArchive(identifier: string): Promise<Templat
   if (!template) {
     const err: any = new Error(`Template not found: ${identifier}`);
     err.status = 404;
+
     throw err;
   }
 
   const zip = new AdmZip();
+
 
   const meta = {
     slug: template.slug,
@@ -59,10 +64,12 @@ export async function exportTemplateArchive(identifier: string): Promise<Templat
       zip.addFile(zipPath, content);
     } catch (err) {
       logger.warn('asset missing for template export', { asset: relPath, error: (err as Error)?.message });
+
     }
   }
 
   const buffer = zip.toBuffer();
+
   const stream = Readable.from(buffer);
 
   logger.info('template export bundle generated', {
@@ -148,4 +155,5 @@ function resolveUploadsPath(relative: string): string | null {
   } catch {
     return null;
   }
+
 }
