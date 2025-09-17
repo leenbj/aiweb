@@ -6,8 +6,9 @@ import { prisma } from '../database';
 import { renderTemplate, composePage } from '../services/templateRenderer';
 import { searchTemplates } from '../services/templateIndex';
 import { getMemoryTemplateBySlug } from '../services/templateMemory';
-import { exportTemplateAsZip } from '../services/templateExporter';
-import { createTemplateVersion, rollbackTemplateVersion } from '../services/templateVersioning';
+
+import { exportTemplateArchive } from '../services/templateExporter';
+
 
 const router = express.Router();
 
@@ -25,19 +26,31 @@ const upload = multer({
 
 // POST /api/templates/import-zip
 router.post('/import-zip', upload.single('file'), async (req, res) => {
-  const requestId = getRequestId(req);
+
+  const startedAt = Date.now();
+
   try {
     if (!req.file) {
       res.status(400);
       return res.json({ success: false, error: 'ZIP file is required' });
     }
     const userId = (req as any).user?.id || 'u_demo';
-    const result = await importZipToTemplates(req.file.buffer, userId, { requestId });
+
+    const result = await importZipToTemplates(req.file.buffer, userId);
+    logger.info('templates import success', {
+      importId: result.importId,
+      pages: result.pages.length,
+      components: result.components.length,
+      durationMs: Date.now() - startedAt,
+    });
     return res.json({ success: true, ...result });
   } catch (err: any) {
-    logger.error('import-zip error', { requestId, error: err?.message });
-    const status = err?.status || 500;
-    res.status(status).json({ success: false, error: err?.message || 'Server error' });
+    logger.error('import-zip error', {
+      durationMs: Date.now() - startedAt,
+      error: err instanceof Error ? { message: err.message, stack: err.stack } : err,
+    });
+    res.status(500).json({ success: false, error: err?.message || 'Server error' });
+
   }
 });
 
@@ -56,64 +69,40 @@ router.get('/search', async (req, res) => {
 });
 
 router.get('/:id/export', async (req, res) => {
-  const requestId = getRequestId(req);
-  const templateId = req.params.id;
+
+  const startedAt = Date.now();
+  const { id } = req.params;
   try {
-    const { buffer, filename } = await exportTemplateAsZip(templateId, { requestId });
+    const { stream, filename, size } = await exportTemplateArchive(id);
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    return res.send(buffer);
+    if (size) res.setHeader('Content-Length', String(size));
+
+    stream.on('error', (err) => {
+      logger.error('template export stream error', err);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, error: 'Export stream error' });
+      } else {
+        res.end();
+      }
+    });
+
+    stream.on('end', () => {
+      logger.info('template export completed', {
+        templateId: id,
+        durationMs: Date.now() - startedAt,
+        size,
+      });
+    });
+
+    stream.pipe(res);
   } catch (err: any) {
-    const status = err?.status || 500;
-    const message = err?.message || 'Export failed';
-    if (status === 404) {
-      logger.warn('template export not found', { requestId, templateId, error: message });
-    } else {
-      logger.error('template export error', { requestId, templateId, error: message });
-    }
+    const status = err?.status || err?.statusCode || (String(err?.message || '').includes('not found') ? 404 : 500);
+    logger.error('template export error', err);
     if (!res.headersSent) {
-      res.status(status).json({ success: false, error: message });
+      res.status(status).json({ success: false, error: err?.message || 'Export failed' });
     }
-  }
-});
 
-router.post('/:id/versions', async (req, res) => {
-  const requestId = getRequestId(req);
-  const templateId = req.params.id;
-  const { version } = req.body || {};
-  if (!version) return res.status(400).json({ success: false, error: 'version is required' });
-  try {
-    const result = await createTemplateVersion(templateId, version, { requestId });
-    return res.json({ success: true, ...result });
-  } catch (err: any) {
-    const status = err?.status || 500;
-    const message = err?.message || 'Failed to create version';
-    if (status === 409) {
-      logger.warn('template version conflict', { requestId, templateId, version, error: message });
-    } else {
-      logger.error('template version error', { requestId, templateId, version, error: message });
-    }
-    res.status(status).json({ success: false, error: message });
-  }
-});
-
-router.post('/:id/rollback', async (req, res) => {
-  const requestId = getRequestId(req);
-  const templateId = req.params.id;
-  const { version } = req.body || {};
-  if (!version) return res.status(400).json({ success: false, error: 'version is required' });
-  try {
-    const result = await rollbackTemplateVersion(templateId, version, { requestId });
-    return res.json({ success: true, ...result });
-  } catch (err: any) {
-    const status = err?.status || 500;
-    const message = err?.message || 'Failed to rollback version';
-    if (status === 404) {
-      logger.warn('template rollback missing', { requestId, templateId, version, error: message });
-    } else {
-      logger.error('template rollback error', { requestId, templateId, version, error: message });
-    }
-    res.status(status).json({ success: false, error: message });
   }
 });
 
