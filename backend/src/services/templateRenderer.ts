@@ -9,87 +9,120 @@ import { sanitizeHtmlCssJs } from '../utils/sanitizer';
 
 type RenderParams = { slug: string; data?: any; theme?: string; engine?: 'hbs'|'react'|'plain' };
 
+type OperationContext = { requestId?: string };
+
 const cache = new LRUCache<string, any>({ max: 300 });
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
 const schemaCache = new LRUCache<string, any>({ max: 300 });
 
-export async function renderTemplate(_params: RenderParams) {
+export async function renderTemplate(_params: RenderParams, opts: OperationContext = {}) {
   const { slug, data, theme, engine } = _params;
-  const tpl = await prisma.template.findUnique({ where: { slug } });
-  if (!tpl) throw new Error(`Template not found: ${slug}`);
-  const eng = (engine || tpl.engine || 'plain').toLowerCase();
-  if (eng === 'hbs' || eng === 'handlebars') {
-    if (tpl.schemaJson) {
-      const key = `${tpl.slug}@${tpl.version}`;
-      let validate = schemaCache.get(key);
-      if (!validate) {
-        validate = ajv.compile(tpl.schemaJson as any);
-        schemaCache.set(key, validate);
-      }
-      const valid = validate(data || {});
-      if (!valid) {
-        const msg = (validate.errors || []).map(e => `${e.instancePath || e.schemaPath} ${e.message}`).join('; ');
-        throw new Error(`Schema validation failed: ${msg}`);
-      }
+  const { requestId } = opts;
+  const startedAt = Date.now();
+  const logMeta = { requestId, slug };
+  logger.info('template.render.start', logMeta);
+  try {
+    const tpl = await prisma.template.findUnique({ where: { slug } });
+    if (!tpl) {
+      const err = new Error(`Template not found: ${slug}`);
+      (err as any).status = 404;
+      throw err;
     }
-    const compiled = cache.get(slug) || Handlebars.compile(tpl.code);
-    if (!cache.has(slug)) cache.set(slug, compiled);
-    let raw = compiled({ ...(data||{}), theme });
-    // 注入主题 CSS 变量
-    const themeCss = await getThemeCss(theme);
-    if (themeCss) raw = injectThemeCss(raw, themeCss);
-    const { html } = sanitizeHtmlCssJs(raw);
-    return { html, meta: { slug, version: tpl.version, engine: 'hbs' } };
-  }
-  // plain: 原样返回，忽略 data
-  {
-    let raw = tpl.code;
-    const themeCss = await getThemeCss(theme);
-    if (themeCss) raw = injectThemeCss(raw, themeCss);
-    const { html } = sanitizeHtmlCssJs(raw);
-    return { html, meta: { slug, version: tpl.version, engine: 'plain' } };
+    const eng = (engine || tpl.engine || 'plain').toLowerCase();
+    if (eng === 'hbs' || eng === 'handlebars') {
+      if (tpl.schemaJson) {
+        const key = `${tpl.slug}@${tpl.version}`;
+        let validate = schemaCache.get(key);
+        if (!validate) {
+          validate = ajv.compile(tpl.schemaJson as any);
+          schemaCache.set(key, validate);
+        }
+        const valid = validate(data || {});
+        if (!valid) {
+          const msg = (validate.errors || []).map(e => `${e.instancePath || e.schemaPath} ${e.message}`).join('; ');
+          const err = new Error(`Schema validation failed: ${msg}`);
+          (err as any).status = 422;
+          throw err;
+        }
+      }
+      const compiled = cache.get(slug) || Handlebars.compile(tpl.code);
+      if (!cache.has(slug)) cache.set(slug, compiled);
+      let raw = compiled({ ...(data||{}), theme });
+      const themeCss = await getThemeCss(theme);
+      if (themeCss) raw = injectThemeCss(raw, themeCss);
+      const { html } = sanitizeHtmlCssJs(raw);
+      logger.info('template.render.success', { ...logMeta, engine: 'hbs', durationMs: Date.now() - startedAt });
+      return { html, meta: { slug, version: tpl.version, engine: 'hbs' } };
+    }
+    {
+      let raw = tpl.code;
+      const themeCss = await getThemeCss(theme);
+      if (themeCss) raw = injectThemeCss(raw, themeCss);
+      const { html } = sanitizeHtmlCssJs(raw);
+      logger.info('template.render.success', { ...logMeta, engine: 'plain', durationMs: Date.now() - startedAt });
+      return { html, meta: { slug, version: tpl.version, engine: 'plain' } };
+    }
+  } catch (err: any) {
+    logger.error('template.render.failed', { ...logMeta, error: err?.message });
+    throw err;
   }
 }
 
-export async function composePage(_body: any) {
+export async function composePage(_body: any, opts: OperationContext = {}) {
   const { page, components, theme } = _body || {};
-  if (!page?.slug) throw new Error('page.slug is required');
-  const pageTpl = await prisma.template.findUnique({ where: { slug: page.slug } });
-  if (!pageTpl) throw new Error(`Template not found: ${page.slug}`);
+  const { requestId } = opts;
+  const logMeta = { requestId, page: page?.slug };
+  const startedAt = Date.now();
+  logger.info('template.compose.start', { ...logMeta, components: (components || []).length });
+  try {
+    if (!page?.slug) {
+      const err = new Error('page.slug is required');
+      (err as any).status = 400;
+      throw err;
+    }
+    const pageTpl = await prisma.template.findUnique({ where: { slug: page.slug } });
+    if (!pageTpl) {
+      const err = new Error(`Template not found: ${page.slug}`);
+      (err as any).status = 404;
+      throw err;
+    }
 
-  // 注册 partials
-  const compSlugs = (components || []).map((c: any) => c.slug);
-  const compRecords = await prisma.template.findMany({ where: { slug: { in: compSlugs } } });
-  for (const t of compRecords) {
-    Handlebars.registerPartial(t.slug, t.code);
-  }
+    const compSlugs = (components || []).map((c: any) => c.slug);
+    const compRecords = await prisma.template.findMany({ where: { slug: { in: compSlugs } } });
+    for (const t of compRecords) {
+      Handlebars.registerPartial(t.slug, t.code);
+    }
 
-  if ((pageTpl.engine || 'plain').toLowerCase() === 'hbs') {
-    const compiled = cache.get(pageTpl.slug) || Handlebars.compile(pageTpl.code);
-    if (!cache.has(pageTpl.slug)) cache.set(pageTpl.slug, compiled);
-    // 传入数据，以 slot 为 key
-    const data: any = {};
-    for (const c of components || []) data[c.slot || c.slug] = c.data || {};
-    let raw = compiled({ ...(page.data || {}), ...data, theme });
-    const themeCss = await getThemeCss(theme);
-    if (themeCss) raw = injectThemeCss(raw, themeCss);
-    const { html } = sanitizeHtmlCssJs(raw);
-    return { html, meta: { slug: pageTpl.slug, engine: 'hbs' } };
-  }
+    if ((pageTpl.engine || 'plain').toLowerCase() === 'hbs') {
+      const compiled = cache.get(pageTpl.slug) || Handlebars.compile(pageTpl.code);
+      if (!cache.has(pageTpl.slug)) cache.set(pageTpl.slug, compiled);
+      const data: any = {};
+      for (const c of components || []) data[c.slot || c.slug] = c.data || {};
+      let raw = compiled({ ...(page.data || {}), ...data, theme });
+      const themeCss = await getThemeCss(theme);
+      if (themeCss) raw = injectThemeCss(raw, themeCss);
+      const { html } = sanitizeHtmlCssJs(raw);
+      logger.info('template.compose.success', { ...logMeta, engine: 'hbs', durationMs: Date.now() - startedAt });
+      return { html, meta: { slug: pageTpl.slug, engine: 'hbs' } };
+    }
 
-  // plain：拼接组件渲染结果
-  const rendered: string[] = [];
-  for (const c of components || []) {
-    const r = await renderTemplate({ slug: c.slug, data: c.data, theme });
-    rendered.push(r.html);
-  }
-  {
-    let raw = rendered.join('\n');
-    const themeCss = await getThemeCss(theme);
-    if (themeCss) raw = injectThemeCss(raw, themeCss);
-    const { html } = sanitizeHtmlCssJs(raw);
-    return { html, meta: { engine: 'composed-plain' } };
+    const rendered: string[] = [];
+    for (const c of components || []) {
+      const r = await renderTemplate({ slug: c.slug, data: c.data, theme }, opts);
+      rendered.push(r.html);
+    }
+    {
+      let raw = rendered.join('\n');
+      const themeCss = await getThemeCss(theme);
+      if (themeCss) raw = injectThemeCss(raw, themeCss);
+      const { html } = sanitizeHtmlCssJs(raw);
+      logger.info('template.compose.success', { ...logMeta, engine: 'composed-plain', durationMs: Date.now() - startedAt });
+      return { html, meta: { engine: 'composed-plain' } };
+    }
+  } catch (err: any) {
+    logger.error('template.compose.failed', { ...logMeta, error: err?.message });
+    throw err;
   }
 }
 
