@@ -30,7 +30,7 @@ export async function searchTemplates(params: SearchParams) {
   }
 }
 
-function rankTemplates(list: Array<{ name?: string; slug: string; description?: string; tags?: string[]; engine?: string; updatedAt?: any }>, q?: string) {
+function rankTemplates(list: Array<{ name?: string; slug: string; description?: string | null; tags?: string[]; engine?: string; updatedAt?: any }>, q?: string) {
   if (!q) return list.sort((a,b)=> (new Date(b.updatedAt as any).getTime() - new Date(a.updatedAt as any).getTime()));
   const query = q.toLowerCase();
   const scoreOf = (t: any) => {

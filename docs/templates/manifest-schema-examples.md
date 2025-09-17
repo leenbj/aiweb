@@ -1,140 +1,114 @@
-# 静态模板包结构与配置示例
+# 模板 ZIP 规范与示例（manifest.json / schema.json）
 
-为了便于后端自动识别页面、组件和主题资源，静态 ZIP 包需要携带清晰的 `manifest.json`、`schema.json` 与 AI 辅助信息。以下示例展示了推荐的目录结构、字段含义及编写规范。
+本文档说明上传 ZIP 包的推荐结构，以及 manifest 与 schema 的编写示例，帮助团队生成可被系统良好识别的页面/组件/主题模板。
 
 ## 目录结构建议
 
 ```
-landing-page.zip
-├─ manifest.json          # 入口声明与元信息
-├─ schema.json            # 页面或组件的参数结构（可选）
-├─ ai-hints.json          # AI 生成/推荐提示（可选）
-├─ index.html             # 页面入口或组件示例
-├─ partials/
-│  ├─ header.html
-│  └─ footer.html
-└─ assets/
-   ├─ styles.css
-   └─ hero.png
+my-template.zip
+├── index.html            # 入口 HTML（页面模板必备）
+├── components/           # 可选：组件片段（单文件或拆分）
+│   ├── hero.html
+│   └── pricing.html
+├── assets/               # 资源文件（图片/CSS/JS/媒体等）
+│   ├── style.css
+│   ├── app.js
+│   └── images/...
+├── manifest.json         # 可选：模板清单（见下）
+└── schema.json           # 可选：数据结构（HBS 组件/页面可用）
 ```
 
-- **入口 HTML**：页面类模板需提供完整的 `index.html`，组件类可提供片段或示例包装页。
-- **partials/**：可选，用于拆分 header/footer 等常用块，Importer 会尝试参数化并注册为组件。
-- **assets/**：存放引用的 CSS/JS/图片资源，导入后会被重写为 `/uploads/u_{userId}/{importId}/**`。
+说明：
+- Importer 对 `.html/.htm/.css/.js/.png/.jpg/.svg/.webp/.woff2/...` 等常见后缀开放白名单；
+- 资源路径会被重写为 `/uploads/u_{userId}/{importId}/...` 并在 `<head>` 注入 `<base href>`，预览无 404；
+- 未提供 manifest/schema 时，系统会通过启发式选择器（header/hero/pricing/features 等）自动抽取组件候选。
 
 ## manifest.json 示例
 
+用于声明模板元信息与引擎类型（可选）。
+
 ```json
 {
-  "slug": "startup-landing",
-  "name": "创业着陆页",
-  "description": "适合 SaaS/创业公司的三屏落地页",
-  "type": "page",
-  "engine": "hbs",
+  "slug": "landing-basic",
+  "name": "基础落地页",
   "version": "1.0.0",
+  "type": "page",         
+  "engine": "plain",      
+  "description": "简洁的产品落地页模板",
+  "tags": ["marketing", "landing"],
   "entry": "index.html",
-  "tags": ["landing", "startup", "saas"],
-  "components": [
-    { "slug": "site-header", "path": "partials/header.html" },
-    { "slug": "pricing-table", "path": "partials/pricing.html" }
-  ],
-  "assets": [
-    "assets/styles.css",
-    "assets/hero.png"
-  ],
-  "schema": "./schema.json",
-  "aiHints": "./ai-hints.json"
+  "schema": null,
+  "aiHints": {
+    "summary": "适用于产品宣传与活动推广",
+    "recommendedUseCases": ["新品发布", "活动页"],
+    "keywords": ["hero", "pricing"],
+    "sections": {
+      "title": { "description": "页面主标题", "example": "欢迎使用我们的产品" },
+      "cta": { "description": "行动按钮", "example": "立即开始" }
+    },
+    "prompts": [
+      "为着陆页生成引人注目的标题与副标题",
+      "撰写三段简洁的功能介绍"
+    ]
+  },
+  "assets": ["assets/style.css", "assets/app.js"]
 }
 ```
 
-### 字段说明
+字段说明：
+- `type`: `page | component | theme`
+- `engine`: `plain | hbs | react`（当前主要支持 plain/hbs）
+- `entry`: 入口文件（页面或组件文件路径），默认 `index.html`
+- `aiHints`: 供 AI 生成/编辑时参考的提示信息结构
 
-- **slug**：模板唯一标识，Importer 会检测冲突并自动追加短 ID。
-- **type**：`page` / `component` / `theme`，用于前端筛选。
-- **engine**：`plain` / `hbs` / `react`，决定渲染方式与是否参数化。
-- **components**：仅对页面模板生效，指向可拆分的片段文件。
-- **assets**：静态资源相对路径，导出 ZIP 时会打包到 `assets/` 目录。
-- **schema**、**aiHints**：可选路径，指向同级 JSON 文件。
+## schema.json 示例（HBS 模板）
 
-## schema.json 示例
-
-以下示例采用 JSON Schema（Draft-07）描述页面参数，Importer 会用于表单生成与运行时校验：
+当引擎为 `hbs` 时，可提供 `schema.json` 以约束/提示渲染数据结构。
 
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
-    "hero": {
+    "title": { "type": "string", "minLength": 1 },
+    "subtitle": { "type": "string" },
+    "cta": {
       "type": "object",
-      "title": "英雄模块",
       "properties": {
-        "title": { "type": "string", "title": "主标题" },
-        "subtitle": { "type": "string", "title": "副标题" },
-        "cta": {
-          "type": "object",
-          "title": "按钮",
-          "properties": {
-            "text": { "type": "string" },
-            "href": { "type": "string" }
-          },
-          "required": ["text"]
-        }
+        "text": { "type": "string" },
+        "href": { "type": "string", "format": "uri-reference" }
       },
-      "required": ["title"]
+      "required": ["text", "href"]
     },
-    "pricing": {
+    "items": {
       "type": "array",
-      "title": "价格方案",
       "items": {
         "type": "object",
         "properties": {
           "name": { "type": "string" },
-          "price": { "type": "string" },
-          "features": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
+          "price": { "type": "string" }
         },
         "required": ["name", "price"]
       }
     }
-  }
-}
-```
-
-## ai-hints.json 示例
-
-`TemplateAIHints` 用于指导 AI 在生成或组合页面时的语义提示：
-
-```json
-{
-  "summary": "适合展示 B2B SaaS 产品卖点的三屏页面",
-  "recommendedUseCases": ["SaaS", "企业官网"],
-  "keywords": ["SaaS", "Landing", "Startup"],
-  "sections": {
-    "hero": {
-      "description": "首屏强调价值主张，配合 CTA",
-      "example": "让团队 10 分钟上线营销页"
-    },
-    "pricing": {
-      "description": "展示 3 款套餐并强调差异点",
-      "required": true
-    }
   },
-  "prompts": [
-    "请围绕产品效率优势撰写英雄模块文案",
-    "根据三种用户类型给出价格方案"
-  ]
+  "required": ["title", "cta"]
 }
 ```
 
-## 编写建议
+## 命名建议
+- `slug`：仅小写字母/数字/短横线；例如：`hero-basic`、`pricing-cards`；
+- 版本：遵循语义化版本 `MAJOR.MINOR.PATCH`；
+- 资源目录：推荐 `assets/` 作为根目录，避免深层相对路径复杂度。
 
-1. **命名规范**：`slug` 建议使用小写中划线（kebab-case），便于 URL 复用。
-2. **版本管理**：发布新版本时更新 `version` 字段并使用导出的 ZIP 作为备份，可与版本 API 协同。
-3. **Schema 粒度**：尽量拆分为 `object` + `array` 的层级结构，字段命名与组件 Handlebars 变量保持一致。
-4. **AI 提示**：`aiHints` 中的 `summary`、`sections`、`prompts` 将用于提示词拼接，避免出现敏感信息或真实客户数据。
-5. **资源引用**：HTML 内引用静态资源请使用相对路径（如 `assets/style.css`），Importer 会统一重写为 `/uploads/...` 前缀。
+## 导入与预览
+- 导入接口：`POST /api/templates/import-zip`（表单字段名：`file`）
+- 搜索接口：`GET /api/templates/search?type=page|component|theme&query=...`
+- 渲染接口：`POST /api/templates/render`（`{ slug, data?, theme? }`）
+- 组合接口：`POST /api/templates/compose`（`{ page, components[], theme? }`）
+- 导出接口：`GET /api/templates/:id/export`
 
-按照上述约定整理 ZIP 包，可显著提升导入成功率、组件参数化准确性，以及前后端联调体验。
+## 常见问题
+- 预览资源 404：请确保资源位于 ZIP 包内并使用相对路径；导入后系统会自动重写并注入 `<base>`。
+- 未识别组件：可在 `components/` 中拆分片段；或在页面中使用常见选择器（header/hero/pricing/features 等）。
+

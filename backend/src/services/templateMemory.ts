@@ -42,3 +42,7 @@ export function searchMemoryTemplates(params: { query?: string; type?: string; e
 export function getMemoryTemplateBySlug(slug: string) {
   return memoryTemplates.find(t => t.slug === slug) || null;
 }
+
+export function getMemoryTemplateById(id: string) {
+  return memoryTemplates.find(t => t.id === id) || null;
+}

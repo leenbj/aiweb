@@ -6,6 +6,7 @@ import addFormats from 'ajv-formats';
 import { LRUCache } from 'lru-cache';
 import * as cheerio from 'cheerio';
 import { sanitizeHtmlCssJs } from '../utils/sanitizer';
+import { getMemoryTemplateBySlug } from './templateMemory';
 
 type RenderParams = { slug: string; data?: any; theme?: string; engine?: 'hbs'|'react'|'plain' };
 
@@ -23,11 +24,21 @@ export async function renderTemplate(_params: RenderParams, opts: OperationConte
   const logMeta = { requestId, slug };
   logger.info('template.render.start', logMeta);
   try {
-    const tpl = await prisma.template.findUnique({ where: { slug } });
+    let tpl: any = null;
+    try {
+      tpl = await prisma.template.findUnique({ where: { slug } });
+    } catch {
+      /* ignore */
+    }
     if (!tpl) {
-      const err = new Error(`Template not found: ${slug}`);
-      (err as any).status = 404;
-      throw err;
+      const mem = getMemoryTemplateBySlug(slug);
+      if (mem) {
+        tpl = mem;
+      } else {
+        const err = new Error(`Template not found: ${slug}`);
+        (err as any).status = 404;
+        throw err;
+      }
     }
     const eng = (engine || tpl.engine || 'plain').toLowerCase();
     if (eng === 'hbs' || eng === 'handlebars') {
@@ -40,7 +51,7 @@ export async function renderTemplate(_params: RenderParams, opts: OperationConte
         }
         const valid = validate(data || {});
         if (!valid) {
-          const msg = (validate.errors || []).map(e => `${e.instancePath || e.schemaPath} ${e.message}`).join('; ');
+          const msg = (validate.errors || []).map((e: any) => `${e.instancePath || e.schemaPath} ${e.message}`).join('; ');
           const err = new Error(`Schema validation failed: ${msg}`);
           (err as any).status = 422;
           throw err;
@@ -81,7 +92,14 @@ export async function composePage(_body: any, opts: OperationContext = {}) {
       (err as any).status = 400;
       throw err;
     }
-    const pageTpl = await prisma.template.findUnique({ where: { slug: page.slug } });
+    let pageTpl: any = null;
+    try {
+      pageTpl = await prisma.template.findUnique({ where: { slug: page.slug } });
+    } catch { /* ignore */ }
+    if (!pageTpl) {
+      const mem = getMemoryTemplateBySlug(page.slug);
+      if (mem) pageTpl = mem;
+    }
     if (!pageTpl) {
       const err = new Error(`Template not found: ${page.slug}`);
       (err as any).status = 404;
@@ -89,7 +107,17 @@ export async function composePage(_body: any, opts: OperationContext = {}) {
     }
 
     const compSlugs = (components || []).map((c: any) => c.slug);
-    const compRecords = await prisma.template.findMany({ where: { slug: { in: compSlugs } } });
+    let compRecords: any[] = [];
+    try {
+      compRecords = await prisma.template.findMany({ where: { slug: { in: compSlugs } } });
+    } catch { compRecords = []; }
+    const got = new Set((compRecords || []).map((t:any)=>t.slug));
+    for (const s of compSlugs) {
+      if (!got.has(s)) {
+        const mem = getMemoryTemplateBySlug(s);
+        if (mem) compRecords.push(mem as any);
+      }
+    }
     for (const t of compRecords) {
       Handlebars.registerPartial(t.slug, t.code);
     }

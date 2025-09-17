@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { templateSDK, type TemplateDTO } from '@/services/templateSDK';
 import { downloadTemplateZip } from '@/utils/templateDownload';
+import { buildTemplatePreviewDoc, getUploadsBase, normalizeUploadsReference, toUploadsPath } from '@/utils/previewDoc';
 
 type ViewMode = 'preview' | 'code';
 type DeviceMode = 'desktop' | 'tablet' | 'mobile';
@@ -892,23 +893,7 @@ function renderSchemaFields(schema: any, value: any, onChange: (value: any) => v
 }
 
 function buildPreviewDoc(input: string) {
-  const baseStyle = '<style>html,body{margin:0!important;padding:0!important;background:#fff;}body{padding-top:8px !important;}*{box-sizing:border-box;}</style>';
-  const viewport = '<meta name="viewport" content="width=device-width, initial-scale=1" />';
-  try {
-    const hasHtml = /<html[\s>]/i.test(input);
-    const hasHead = /<head[\s>]/i.test(input);
-    if (hasHtml) {
-      // 在 </head> 前注入基础样式与 viewport；若无 <head>，插入一个
-      if (hasHead) {
-        return input.replace(/<head(.*?)>/i, (m) => `${m}${viewport}${baseStyle}`);
-      }
-      return input.replace(/<html(.*?)>/i, (m) => `${m}<head>${viewport}${baseStyle}</head>`);
-    }
-    // 非完整文档，包裹骨架
-    return `<!DOCTYPE html><html lang="zh-CN"><head>${viewport}${baseStyle}</head><body>${input}</body></html>`;
-  } catch {
-    return input;
-  }
+  return buildTemplatePreviewDoc(input);
 }
 
 function BuildPreviewModal({ html, websiteId, onClose }: { html: string; websiteId: string; onClose: () => void }) {
@@ -918,33 +903,48 @@ function BuildPreviewModal({ html, websiteId, onClose }: { html: string; website
   const [loading, setLoading] = React.useState(false);
 
   React.useEffect(() => {
-    // 解析 html 的资源引用，生成初始映射
     try {
       const doc = new DOMParser().parseFromString(html, 'text/html');
-      // 自动推断 assetsBase: 从第一个 /uploads/u_*/imp_*/ 前缀推断
-      const anySrc = doc.querySelector('[src], [href]') as any;
-      if (anySrc) {
-        const val = anySrc.getAttribute('src') || anySrc.getAttribute('href');
-        const m = val && val.match(/^(\/uploads\/u_[^/]+\/imp_[^/]+\/)?.*$/);
-        if (m && m[1]) setAssetsBase(m[1]);
+      const baseEl = doc.querySelector('base[href]');
+      const baseHref = baseEl?.getAttribute('href') || '';
+      const fallbackBase = toUploadsPath(getUploadsBase());
+      const resolvedBase = baseHref
+        ? toUploadsPath(normalizeUploadsReference(baseHref))
+        : fallbackBase;
+      if (resolvedBase) {
+        setAssetsBase(resolvedBase);
       }
+
       const refs = new Set<string>();
       doc.querySelectorAll('link[rel="stylesheet"][href], script[src], img[src]').forEach((el) => {
         const attr = (el as HTMLLinkElement).href ? 'href' : 'src';
         const val = (el as any).getAttribute(attr);
         if (!val) return;
-        if (/^https?:/i.test(val) || /^data:/i.test(val)) return; // 忽略外链
-        refs.add(val);
+        if (/^data:/i.test(val)) return;
+
+        const normalized = normalizeUploadsReference(val);
+        const uploadsPath = toUploadsPath(normalized);
+        if (uploadsPath.startsWith('/uploads/')) {
+          refs.add(uploadsPath);
+          return;
+        }
+
+        if (/^https?:/i.test(val)) return; // 其余外链忽略
+
+        if (/^(static|assets)\//.test(val)) {
+          refs.add(val);
+        }
       });
-      const list: {from:string; to:string; enabled:boolean}[] = [];
+
+      const list: { from: string; to: string; enabled: boolean }[] = [];
       refs.forEach((ref) => {
         if (ref.startsWith('/uploads/')) {
-          list.push({ from: ref, to: ref.replace(/^\//,''), enabled: true });
-        } else if (/^(static|assets)\//.test(ref)) {
-          // 需要 assetsBase 拼接源路径
+          list.push({ from: ref, to: ref.replace(/^\/uploads\//, ''), enabled: true });
+        } else {
           list.push({ from: ref, to: ref, enabled: true });
         }
       });
+
       setItems(list);
     } catch {}
   }, [html]);

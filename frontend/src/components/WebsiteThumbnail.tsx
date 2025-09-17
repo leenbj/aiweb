@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Globe, RefreshCw, AlertCircle } from 'lucide-react';
 import { screenshotService } from '../services/api';
+import { buildTemplatePreviewDoc } from '@/utils/previewDoc';
 
 interface WebsiteThumbnailProps {
   websiteId: string;
@@ -77,12 +78,13 @@ export const WebsiteThumbnail: React.FC<WebsiteThumbnailProps> = ({
 
     if (error || !thumbnailUrl) {
       // 回退：若提供了htmlContent，则使用内嵌预览模拟截图
-      if (htmlContent) {
+      const previewDoc = htmlContent ? buildTemplatePreviewDoc(htmlContent) : '';
+      if (previewDoc) {
         return (
           <div className="w-full h-full bg-white relative overflow-hidden">
             <div className="absolute inset-0 scale-[0.25] origin-top-left pointer-events-none" style={{ width: '400%', height: '400%' }}>
               <iframe
-                srcDoc={htmlContent}
+                srcDoc={previewDoc}
                 title={`${title} 预览`}
                 className="w-full h-full border-0"
               />

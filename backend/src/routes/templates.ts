@@ -8,6 +8,7 @@ import { searchTemplates } from '../services/templateIndex';
 import { getMemoryTemplateBySlug } from '../services/templateMemory';
 
 import { exportTemplateArchive } from '../services/templateExporter';
+import { createTemplateVersion, rollbackTemplateVersion } from '../services/templateVersioning';
 
 
 const router = express.Router();
@@ -35,8 +36,9 @@ router.post('/import-zip', upload.single('file'), async (req, res) => {
       return res.json({ success: false, error: 'ZIP file is required' });
     }
     const userId = (req as any).user?.id || 'u_demo';
+    const requestId = getRequestId(req);
 
-    const result = await importZipToTemplates(req.file.buffer, userId);
+    const result = await importZipToTemplates(req.file.buffer, userId, { requestId });
     logger.info('templates import success', {
       importId: result.importId,
       pages: result.pages.length,
@@ -103,6 +105,42 @@ router.get('/:id/export', async (req, res) => {
       res.status(status).json({ success: false, error: err?.message || 'Export failed' });
     }
 
+  }
+});
+
+// POST /api/templates/:id/versions  { version: "1.2.0" }
+router.post('/:id/versions', async (req, res) => {
+  const startedAt = Date.now();
+  const { id } = req.params;
+  const { version } = req.body || {};
+  if (!version || typeof version !== 'string') {
+    return res.status(400).json({ success: false, error: 'version is required and must be string' });
+  }
+  try {
+    const r = await createTemplateVersion(id, version, { requestId: getRequestId(req) });
+    res.json({ success: true, data: r });
+  } catch (err: any) {
+    const status = err?.status || err?.statusCode || (String(err?.message || '').includes('exists') ? 409 : 500);
+    logger.error('template version create error', { id, version, durationMs: Date.now() - startedAt, error: err?.message });
+    res.status(status).json({ success: false, error: err?.message || 'Version create failed' });
+  }
+});
+
+// POST /api/templates/:id/rollback  { version: "1.1.0" }
+router.post('/:id/rollback', async (req, res) => {
+  const startedAt = Date.now();
+  const { id } = req.params;
+  const { version } = req.body || {};
+  if (!version || typeof version !== 'string') {
+    return res.status(400).json({ success: false, error: 'version is required and must be string' });
+  }
+  try {
+    const r = await rollbackTemplateVersion(id, version, { requestId: getRequestId(req) });
+    res.json({ success: true, data: r });
+  } catch (err: any) {
+    const status = err?.status || err?.statusCode || (String(err?.message || '').includes('not found') ? 404 : 500);
+    logger.error('template version rollback error', { id, version, durationMs: Date.now() - startedAt, error: err?.message });
+    res.status(status).json({ success: false, error: err?.message || 'Rollback failed' });
   }
 });
 

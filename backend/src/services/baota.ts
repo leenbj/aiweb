@@ -30,7 +30,7 @@ async function btCall<T = any>(apiPath: string, payload: BtPayload = {}): Promis
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: toForm({ ...payload, request_time: now, request_token: token }),
   });
-  const data = await res.json().catch(() => ({} as any));
+  const data: any = await res.json().catch(() => ({}));
   if (!res.ok || data?.status === false) {
     const msg = data?.msg || `BT API ${apiPath} failed`;
     throw new Error(msg);
@@ -120,4 +120,3 @@ export const baotaService = {
     return { asciiDomain: ascii, root, sslOk };
   },
 };
-

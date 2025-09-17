@@ -59,7 +59,7 @@ export function parametrizeComponentHtml(htmlFragment: string): ParametrizeResul
     if (children.length >= 2) {
       const firstChild = children.first();
       // 替换常见文本节点为变量
-      const replaceText = (el: cheerio.Cheerio, key: string) => {
+      const replaceText = (el: cheerio.Cheerio<any>, key: string) => {
         if (!el || el.length === 0) return;
         const t = el.text().trim();
         if (t) el.text(`{{${key}}}`);

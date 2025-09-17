@@ -7,6 +7,7 @@ import AdmZip from 'adm-zip';
 import * as cheerio from 'cheerio';
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
+import { getMemoryTemplateById, getMemoryTemplateBySlug } from './templateMemory';
 
 
 const UPLOADS_ROOT = process.env.UPLOADS_ROOT || process.env.UPLOAD_PATH || './uploads';
@@ -18,16 +19,19 @@ export interface TemplateExportResult {
 }
 
 export async function exportTemplateArchive(identifier: string): Promise<TemplateExportResult> {
-  const template = await prisma.template.findFirst({
-    where: {
-      OR: [{ slug: identifier }, { id: identifier }],
-    },
-  });
-
+  let template: any = null;
+  try {
+    template = await prisma.template.findFirst({
+      where: { OR: [{ slug: identifier }, { id: identifier }] },
+    });
+  } catch { /* ignore */ }
+  if (!template) {
+    // fallback: memory by id, then by slug
+    template = getMemoryTemplateById(identifier) || getMemoryTemplateBySlug(identifier);
+  }
   if (!template) {
     const err: any = new Error(`Template not found: ${identifier}`);
     err.status = 404;
-
     throw err;
   }
 

@@ -62,7 +62,7 @@ export class ScreenshotService {
   /**
    * 检测可用的截图工具
    */
-  private async getAvailableScreenshotTool(): Promise<'puppeteer' | 'wkhtmltoimage' | 'chrome' | null> {
+  private async getAvailableScreenshotTool(): Promise<'wkhtmltoimage' | 'chrome' | null> {
     try {
       // 首先检查是否有Chrome/Chromium（用于Puppeteer或直接使用）
       try {
@@ -231,4 +231,4 @@ export class ScreenshotService {
   }
 }
 
-// export const screenshotService = new ScreenshotService();
+export const screenshotService = new ScreenshotService();

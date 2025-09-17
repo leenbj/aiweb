@@ -5,7 +5,7 @@ export function sanitizeHtmlCssJs(_html: string, _css?: string, _js?: string) {
   if (!_html) return { html: _html, css: _css, js: _js };
 
   const isFullDoc = /<!DOCTYPE/i.test(_html) || /<html[\s>]/i.test(_html);
-  const $ = cheerio.load(_html, { xmlMode: false, decodeEntities: true });
+  const $ = cheerio.load(_html, { xmlMode: false, decodeEntities: true } as any);
 
   // 1) 删除脚本与危险标签
   $('script, iframe, object, embed').remove();

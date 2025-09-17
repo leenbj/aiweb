@@ -3,6 +3,7 @@ import { templateSDK, TemplateDTO } from '@/services/templateSDK';
 import { toast } from 'react-hot-toast';
 import { TemplateType } from '@/shared/types';
 import { downloadTemplateZip } from '@/utils/templateDownload';
+import { buildTemplatePreviewDoc } from '@/utils/previewDoc';
 
 const typeTabs: Array<{ value: TemplateType; label: string }> = [
   { value: 'page', label: '页面模板' },
@@ -88,10 +89,7 @@ export default function TemplateLibrary() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {items.map((t) => {
-          const isFullDoc = /<html[\s>]/i.test(t.previewHtml || '') || /<!DOCTYPE/i.test(t.previewHtml || '');
-          const previewDoc = isFullDoc
-            ? t.previewHtml || ''
-            : `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/></head><body>${t.previewHtml || ''}</body></html>`;
+          const previewDoc = buildTemplatePreviewDoc(t.previewHtml || '');
           return (
             <div key={t.id} className="border rounded p-3 flex flex-col gap-2">
               <div className="flex items-center justify-between text-xs text-gray-500">
@@ -112,7 +110,7 @@ export default function TemplateLibrary() {
                   ))}
                 </div>
               )}
-              {t.previewHtml && (
+              {previewDoc && (
                 <iframe
                   className="mt-1 w-full h-64 border rounded"
                   srcDoc={previewDoc}

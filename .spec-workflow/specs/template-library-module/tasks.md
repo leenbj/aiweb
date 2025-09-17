@@ -46,14 +46,14 @@
   - _Requirements: 需求/API-导出, 设计/API-导出ZIP_
   - _Prompt: Implement the task for spec template-library-module, first run spec-workflow-guide to get the workflow guide then implement the task: Role: 后端工程师 | Task: 实现模板导出服务与路由，打包 index.html/源码、关联静态资源与 meta.json，返回下载 | Restrictions: 路径规范化，避免目录穿越；大文件流式输出 | _Leverage: renderer/compose 结果 | _Requirements: 导出 | Success: 能下载包含完整资源的 ZIP 包，导入同构包应可还原 | Instructions: 进度按规范标记。_
 
-- [ ] 5. 导出能力：模板导出 ZIP
+- [x] 5. 导出能力：模板导出 ZIP
   - Files: backend/src/routes/templates.ts, backend/src/services/templateVersioning.ts (new), backend/prisma/schema.prisma (若需索引)
   - Desc: 新增 `POST /api/templates/:id/versions`、`POST /api/templates/:id/rollback`；支持复制当前代码生成新版本、按指定版本回滚并更新 Template.version。
   - _Leverage: backend/prisma/models Template/TemplateVersion_
   - _Requirements: 需求/版本管理, 设计/API-版本管理_
   - _Prompt: Implement the task for spec template-library-module, first run spec-workflow-guide to get the workflow guide then implement the task: Role: 后端工程师 | Task: 新增版本创建与回滚服务/路由，确保 semver 检查与事务一致性 | Restrictions: 版本重复返回 409；回滚仅允许已存在版本 | _Leverage: Prisma | _Requirements: 版本管理 | Success: 版本创建/回滚接口按规范返回，DB 记录正确 | Instructions: 按进度更新任务状态。_
 
-- [ ] 6. 搜索/展示：模板与组件候选可见
+- [x] 6. 搜索/展示：模板与组件候选可见
   - Files: backend/src/services/templateIndex.ts, frontend/src/pages/TemplateLibrary.tsx
   - Steps（后端）: 保持按 type 过滤与排序；（前端）TemplateLibrary 支持 type 切换/新建 ComponentsLibrary。
   - _Leverage: templateSDK.search/get_
@@ -65,7 +65,7 @@
   - _Requirements: 需求/组件库, 设计/前端页面与模块_
   - _Prompt: Implement the task for spec template-library-module, first run spec-workflow-guide to get the workflow guide then implement the task: Role: 前端工程师（React+Vite+TS） | Task: 新增 ComponentsLibrary 页面并接入路由/侧边栏，默认展示 component 类型模板 | Restrictions: 2 空格缩进、TSX、遵循现有样式 | _Leverage: TemplateLibrary 代码 | _Requirements: 组件库 | Success: 页面可检索与预览组件模板，并从侧边栏可达 | Instructions: 更新任务状态标记。_
 
-- [ ] 7. 前端：装配视图排序/删除与预览（无表单）
+- [x] 7. 前端：装配视图排序/删除与预览（无表单）
   - Files: frontend/src/components/AIEditorWithNewUI.tsx
   - Desc: 组件候选选择、上/下移动、删除、预览刷新；不做表单。
   - _Leverage: templateSDK.compose/render_
@@ -77,42 +77,42 @@
   - _Requirements: 需求/装配, 需求/业务规则-Schema要求, 设计/前端页面与模块_
   - _Prompt: Implement the task for spec template-library-module, first run spec-workflow-guide to get the workflow guide then implement the task: Role: 前端工程师 | Task: 在编辑器中加入 Schema 表单渲染与组件排序能力，表单变更触发 compose 预览刷新 | Restrictions: 不引入大型表单库，优先轻量实现；保持 UI 一致 | _Leverage: 现有 compose 流程 | _Requirements: 装配+Schema | Success: 可对组件 props 表单化编辑并预览更新；列表可移动/删除 | Instructions: 照流程更新任务状态。_
 
-- [ ] 8. 性能与日志：导入耗时与关键日志
+- [x] 8. 性能与日志：导入耗时与关键日志
   - Files: backend/src/services/importer/zipImporter.ts
   - Desc: 统计耗时、记录页面/组件计数、失败原因；warn/error 分级，含 request id。
   - _Leverage: logger_
   - _Requirements: 需求/自动化, 需求/观测性
   - _Prompt: Implement the task for spec template-library-module... | Success: 日志包含耗时与统计 | Instructions: 状态更新。_
 
-- [ ] 9. 前端：一键导出集成
+- [x] 9. 前端：一键导出集成
   - Files: frontend/src/components/AIEditorWithNewUI.tsx, frontend/src/pages/TemplateLibrary.tsx
   - Desc: 在编辑器与库页面增加“导出”按钮，调用 `GET /api/templates/:id/export` 下载 ZIP（或对 compose 结果前端打包作为兜底）。
   - _Leverage: templateSDK（新增 export 方法）, 文件下载工具_
   - _Requirements: 需求/导出, 设计/API-导出ZIP_
   - _Prompt: Implement the task for spec template-library-module, first run spec-workflow-guide to get the workflow guide then implement the task: Role: 前端工程师 | Task: 集成导出功能并提供下载交互 | Restrictions: 避免阻塞主线程，提供错误提示 | _Leverage: fetch 下载流 | _Requirements: 导出 | Success: 点击可下载包含预览的 ZIP 包 | Instructions: 更新任务状态标记。_
 
-- [ ] 10. 共享类型：导入结果与模板枚举
+- [x] 10. 共享类型：导入结果与模板枚举
   - Files: shared/types.ts
   - Desc: 新增 `TemplateManifest`、`TemplateAIHints`、`TemplateType`、`TemplateEngine` 等类型；不破坏现有导出。
   - _Leverage: shared/types.ts_
   - _Requirements: 需求/上传包规范, 设计/Best Practices_
   - _Prompt: Implement the task for spec template-library-module, first run spec-workflow-guide to get the workflow guide then implement the task: Role: TypeScript 工程师 | Task: 在 shared/types.ts 补充 manifest 与 hints 类型定义并导出 | Restrictions: 不修改现有接口字段；仅新增类型 | _Leverage: 共享类型文件 | _Requirements: 上传包规范 | Success: 前后端可引入这些类型编译通过 | Instructions: 按进度更新任务状态。_
 
-- [ ] 11. 冒烟测试脚本：导入/渲染/组装/导出
+- [x] 11. 冒烟测试脚本：导入/渲染/组装/导出
   - Files: test-import-manifest.js (repo root)
   - Desc: 使用示例 ZIP（含 manifest/schema）调用 `/import-zip`、`/search`、`/render`、`/compose`、`/:id/export`，校验关键返回与文件。
   - _Leverage: test-*.js 现有脚本风格_
   - _Requirements: 需求/验收标准, 设计/Testing Strategy_
   - _Prompt: Implement the task for spec template-library-module, first run spec-workflow-guide to get the workflow guide then implement the task: Role: QA 工程师 | Task: 编写 Node 脚本依序调用服务并断言响应码与关键字段 | Restrictions: 不引入额外依赖；使用 node 原生或轻量库 | _Leverage: 现有 test-*.js | _Requirements: 验收标准 | Success: 脚本可在本地跑通并输出通过摘要 | Instructions: 开始设为 [-]，完成改为 [x]。_
 
-- [ ] 12. 安全与日志：导入与渲染日志埋点
+- [x] 12. 安全与日志：导入与渲染日志埋点
   - Files: backend/src/services/importer/zipImporter.ts, backend/src/services/templateRenderer.ts
   - Desc: 为关键操作增加 warn/error 级别日志（含 request id），便于问题追溯；对 422/409 等返回进行统一日志格式。
   - _Leverage: backend/src/utils/logger.ts_
   - _Requirements: 需求/非功能性-观测性, 设计/Security & Compliance_
   - _Prompt: Implement the task for spec template-library-module, first run spec-workflow-guide to get the workflow guide then implement the task: Role: 后端工程师 | Task: 加入规范化日志与错误分级，确保敏感信息不落盘 | Restrictions: 不打印用户上传原始内容；仅记录必要上下文 | _Leverage: logger | _Requirements: 观测性 | Success: 日志包含操作类别、耗时、结果、错误摘要 | Instructions: 按进度更新任务状态。_
 
-- [ ] 13. 文档：仅静态文件上传说明
+- [x] 13. 文档：仅静态文件上传说明
   - Files: docs/templates/manifest-schema-examples.md (new)
   - Desc: 提供 `manifest.json` 与 `schema.json` 示例、命名建议、aiHints 使用说明、ZIP 目录结构建议。
   - _Leverage: docs/
