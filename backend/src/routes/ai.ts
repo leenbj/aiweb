@@ -1,11 +1,17 @@
 import { Router, Response } from 'express';
 import { authenticate } from '../middleware/auth';
 import type { AuthRequest } from '../middleware/auth';
-import { aiService, extractPureHtmlFromResponse } from '../services/ai';
+import { aiService } from '../services/ai';
 import { prisma } from '../database';
 import { logger } from '../utils/logger';
 import { getDefaultPrompt, PromptType } from '../constants/prompts';
 import { config } from '../config';
+import { planTemplate } from '../services/ai/templatePlanner';
+import { composeTemplate } from '../services/ai/templateComposer';
+import { createTemplateSnapshot } from '../services/templateVersioning';
+import { createStreamEmitter } from '../services/ai/streamEmitter';
+import { recordPipelineFailure, recordPipelineSuccess } from '../services/metrics/pipelineMetricsCollector';
+import { persistWebsiteAssets } from '../services/websiteAssets';
 
 const router = Router();
 
@@ -85,58 +91,104 @@ async function getUserPromptByMode(userId: string, mode: 'chat' | 'generate' | '
 }
 
 // Generate website with AI
-router.post('/generate', authenticate, async (req: any, res: Response) => {
+router.post('/generate', authenticate, async (req: AuthRequest, res: Response) => {
+  const { prompt, websiteId, conversationId } = req.body || {};
+  const userId = req.user?.id;
+  const requestId = typeof req.headers['x-request-id'] === 'string' ? req.headers['x-request-id'] : undefined;
+
+  if (!userId || !prompt || typeof prompt !== 'string') {
+    return res.status(400).json({ success: false, error: 'Prompt is required' });
+  }
+
+  let pipelineStage: 'planner' | 'composer' | 'persist' = 'planner';
+
   try {
-    const { prompt, websiteId, conversationId } = req.body;
-    const userId = req.user!.id;
+    const { provider, settings } = await aiService.getUserProvider(userId);
+    const customPrompt = settings?.generatePrompt || settings?.systemPrompt;
+    const model = aiService.getModelFromSettings(settings);
 
-    if (!prompt) {
-      return res.status(400).json({ success: false, error: 'Prompt is required' });
-    }
+    const plannerResult = await planTemplate({
+      userContext: prompt,
+      scenario: undefined,
+      filters: undefined,
+      userId,
+      customPrompt,
+      model,
+    });
 
-    // Generate website content (aiService internal will handle user settings)
-    const result = await aiService.generateWebsite(prompt, userId);
-
-    // 兼容旧的响应格式（字符串）和新的格式（对象）
-    let content: string;
-    let aiReply: string;
-    
-    if (typeof result === 'string') {
-      // 旧格式兼容
-      content = result;
-      aiReply = '我已经为您创建了一个响应式网站，希望您会喜欢！';
-    } else {
-      // 新格式
-      content = result.html;
-      aiReply = result.reply;
-    }
-
-    // 检查生成的内容是否有效
-    if (!content || content.trim() === '') {
-      throw new Error('AI服务未能生成有效的网站内容，请重试');
-    }
-
-    let website;
-    if (websiteId) {
-      // Update existing website
-      website = await prisma.website.update({
-        where: { id: websiteId, userId },
-        data: { content, updatedAt: new Date() },
+    if (!plannerResult.success && plannerResult.error) {
+      recordPipelineFailure({
+        stage: 'planner',
+        reason: plannerResult.error,
+        requestId,
+        metadata: plannerResult.metadata,
       });
+    }
+
+    pipelineStage = 'composer';
+    const composerResult = await composeTemplate(plannerResult.plan ?? null, {
+      requestId,
+      userId,
+    });
+
+    recordPipelineSuccess({
+      stage: 'composer',
+      templateSlug: composerResult.plan.page.slug,
+      durationMs: composerResult.metadata.durationMs,
+      requestId,
+      metadata: composerResult.metadata,
+    });
+
+    try {
+      await createTemplateSnapshot(composerResult.plan.page.slug, {
+        plan: composerResult.plan,
+        html: composerResult.html,
+        css: null,
+        js: null,
+        components: composerResult.components,
+        metadata: {
+          planner: plannerResult.metadata,
+          composer: composerResult.metadata,
+        },
+      }, {
+        requestId,
+        userId,
+      });
+    } catch (snapshotError) {
+      logger.warn('snapshot.save.failed', {
+        error: snapshotError instanceof Error ? snapshotError.message : snapshotError,
+      });
+    }
+
+    pipelineStage = 'persist';
+    let websiteRecord;
+    if (websiteId) {
+      websiteRecord = await prisma.website.findFirst({
+        where: { id: websiteId, userId },
+      });
+      if (!websiteRecord) {
+        return res.status(404).json({ success: false, error: 'Website not found' });
+      }
     } else {
-      // Create new website
-      website = await prisma.website.create({
+      websiteRecord = await prisma.website.create({
         data: {
           userId,
           domain: `temp-${Date.now()}.example.com`,
           title: 'AI Generated Website',
-          content,
+          content: '',
           status: 'draft',
         },
       });
     }
 
-    // Save conversation if provided
+    const persistResult = await persistWebsiteContent(
+      websiteRecord.id,
+      userId,
+      composerResult.pages,
+      composerResult.html,
+      requestId,
+    );
+
     if (conversationId) {
       await prisma.aIMessage.create({
         data: {
@@ -155,48 +207,60 @@ router.post('/generate', authenticate, async (req: any, res: Response) => {
             {
               type: 'create',
               element: 'website',
-              content,
+              content: persistResult.mainHtml,
             },
           ],
         },
       });
     }
 
+    const replyText = plannerResult.success
+      ? 'Website plan generated successfully.'
+      : 'Fallback template applied due to planner error.';
+
     res.json({
       success: true,
       data: {
-        website,
-        content,
-        reply: aiReply,
+        website: persistResult.website,
+        content: persistResult.mainHtml,
+        pages: persistResult.pages,
+        reply: replyText,
+        plan: composerResult.plan,
+        metadata: {
+          planner: {
+            success: plannerResult.success,
+            attempts: plannerResult.attempts,
+            error: plannerResult.error,
+            ...plannerResult.metadata,
+          },
+          composer: composerResult.metadata,
+        },
       },
     });
   } catch (error: any) {
+    const message = error instanceof Error ? error.message : 'Failed to generate website';
+    recordPipelineFailure({
+      stage: pipelineStage,
+      reason: message,
+      requestId,
+    });
     logger.error('Generate website error:', error);
-    
-    // 提取具体错误消息并传递给前端
-    let errorMessage = 'Failed to generate website';
+
     let statusCode = 500;
-    
-    if (error?.message) {
-      errorMessage = error.message;
-      // 如果是API密钥相关错误，使用400状态码
-      if (error.message.includes('API密钥') || error.message.includes('身份验证')) {
-        statusCode = 400;
-      }
-      // 如果是API请求限制错误，使用429状态码
-      else if (error.message.includes('请求频率')) {
-        statusCode = 429;
-      }
-      // 如果是余额不足错误，使用402状态码
-      else if (error.message.includes('余额不足')) {
-        statusCode = 402;
-      }
+    let errorMessage = message;
+
+    if (errorMessage.includes('API密钥') || errorMessage.includes('身份验证')) {
+      statusCode = 400;
+    } else if (errorMessage.includes('请求频率')) {
+      statusCode = 429;
+    } else if (errorMessage.includes('余额不足')) {
+      statusCode = 402;
     }
-    
-    res.status(statusCode).json({ 
-      success: false, 
+
+    res.status(statusCode).json({
+      success: false,
       error: errorMessage,
-      message: errorMessage // 添加message字段确保前端能接收到
+      message: errorMessage,
     });
   }
 });
@@ -206,6 +270,7 @@ router.post('/edit', authenticate, async (req: any, res: Response) => {
   try {
     const { websiteId, instructions, conversationId } = req.body;
     const userId = req.user!.id;
+    const requestId = typeof req.headers['x-request-id'] === 'string' ? req.headers['x-request-id'] : undefined;
 
     if (!websiteId || !instructions) {
       return res.status(400).json({ success: false, error: 'Website ID and instructions are required' });
@@ -228,11 +293,13 @@ router.post('/edit', authenticate, async (req: any, res: Response) => {
       throw new Error('AI服务未能生成有效的编辑结果，请重试');
     }
 
-    // Update website
-    const updatedWebsite = await prisma.website.update({
-      where: { id: websiteId },
-      data: { content: newContent, updatedAt: new Date() },
-    });
+    const persistResult = await persistWebsiteContent(
+      websiteId,
+      userId,
+      [{ slug: 'index', html: newContent }],
+      newContent,
+      requestId,
+    );
 
     // Save conversation if provided
     if (conversationId) {
@@ -253,7 +320,7 @@ router.post('/edit', authenticate, async (req: any, res: Response) => {
             {
               type: 'update',
               element: 'website',
-              content: newContent,
+              content: persistResult.mainHtml,
             },
           ],
         },
@@ -263,8 +330,9 @@ router.post('/edit', authenticate, async (req: any, res: Response) => {
     res.json({
       success: true,
       data: {
-        website: updatedWebsite,
-        content: newContent,
+        website: persistResult.website,
+        content: persistResult.mainHtml,
+        pages: persistResult.pages,
       },
     });
   } catch (error: any) {
@@ -303,6 +371,7 @@ router.post('/optimize', authenticate, async (req: any, res: Response) => {
   try {
     const { websiteId } = req.body;
     const userId = req.user!.id;
+    const requestId = typeof req.headers['x-request-id'] === 'string' ? req.headers['x-request-id'] : undefined;
 
     if (!websiteId) {
       return res.status(400).json({ success: false, error: 'Website ID is required' });
@@ -320,17 +389,20 @@ router.post('/optimize', authenticate, async (req: any, res: Response) => {
     // Optimize website with AI
     const optimizedContent = await aiService.optimizeWebsite(website.content, userId);
 
-    // Update website
-    const updatedWebsite = await prisma.website.update({
-      where: { id: websiteId },
-      data: { content: optimizedContent, updatedAt: new Date() },
-    });
+    const persistResult = await persistWebsiteContent(
+      websiteId,
+      userId,
+      [{ slug: 'index', html: optimizedContent }],
+      optimizedContent,
+      requestId,
+    );
 
     res.json({
       success: true,
       data: {
-        website: updatedWebsite,
-        content: optimizedContent,
+        website: persistResult.website,
+        content: persistResult.mainHtml,
+        pages: persistResult.pages,
       },
     });
   } catch (error) {
@@ -778,183 +850,187 @@ router.post('/chat', authenticate, async (req: any, res: Response) => {
 });
 
 // Generate website with AI - Streaming version
-router.post('/generate-stream', authenticate, async (req: any, res: Response) => {
+router.post('/generate-stream', authenticate, async (req: AuthRequest, res: Response) => {
+  const { prompt, websiteId, scenario, filters, persist = true } = req.body || {};
+  const userId = req.user?.id;
+  const requestId = typeof req.headers['x-request-id'] === 'string' ? req.headers['x-request-id'] : undefined;
+
+  const emitter = createStreamEmitter(res, {
+    requestId,
+  });
+
+  if (!userId || !prompt || typeof prompt !== 'string') {
+    emitter.error('Prompt and authenticated user are required.');
+    return;
+  }
+
+  emitter.stage('request', 'start', { websiteId: websiteId ?? null });
+
   try {
-    const { prompt, websiteId } = req.body;
-    const userId = req.user!.id;
+    const { provider, settings } = await aiService.getUserProvider(userId);
+    const customPrompt = settings?.generatePrompt || settings?.systemPrompt;
+    const model = aiService.getModelFromSettings(settings);
 
-    if (!prompt) {
-      return res.status(400).json({ success: false, error: 'Prompt is required' });
-    }
-
-    // 设置SSE响应头
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Cache-Control'
+    emitter.log('info', 'provider.selected', {
+      provider: provider.constructor.name,
+      model,
     });
 
-    let fullHtml = '';
-    let aiReply = '';
+    emitter.stage('planner', 'start', {});
+    const plannerResult = await planTemplate({
+      userContext: prompt,
+      scenario: typeof scenario === 'string' ? scenario : undefined,
+      filters: typeof filters === 'object' && filters !== null ? filters : undefined,
+      userId,
+      customPrompt,
+      model,
+    });
+
+    if (plannerResult.success && plannerResult.plan) {
+      emitter.stage('planner', 'success', {
+        attempts: plannerResult.attempts,
+        totalTemplates: plannerResult.metadata.totalTemplates,
+      });
+      emitter.plan({
+        plan: plannerResult.plan,
+        metadata: plannerResult.metadata,
+      });
+    } else {
+      emitter.stage('planner', 'error', {
+        attempts: plannerResult.attempts,
+        error: plannerResult.error,
+      });
+      if (plannerResult.error) {
+        emitter.log('warn', 'planner.failed', { error: plannerResult.error });
+        recordPipelineFailure({
+          stage: 'planner',
+          reason: plannerResult.error,
+          requestId,
+          metadata: plannerResult.metadata,
+        });
+      }
+    }
+
+    emitter.stage('composer', 'start', {});
+    const composerResult = await composeTemplate(plannerResult.plan ?? null, {
+      requestId,
+      userId,
+    });
+
+    emitter.stage('composer', 'success', {
+      fallbackUsed: composerResult.metadata.fallbackUsed,
+      issues: composerResult.metadata.issues,
+    });
+
+    if (!plannerResult.success) {
+      emitter.plan({
+        plan: composerResult.plan,
+        metadata: {
+          ...composerResult.metadata,
+          source: 'fallback',
+        },
+      });
+    }
+
+    emitter.preview({
+      html: composerResult.html,
+      components: composerResult.components,
+      metadata: composerResult.metadata,
+    });
 
     try {
+      await createTemplateSnapshot(composerResult.plan.page.slug, {
+        plan: composerResult.plan,
+        html: composerResult.html,
+        css: null,
+        js: null,
+        components: composerResult.components,
+        metadata: {
+          planner: plannerResult.metadata,
+          composer: composerResult.metadata,
+        },
+      }, {
+        requestId,
+        userId,
+      });
+      emitter.log('info', 'snapshot.saved', { slug: composerResult.plan.page.slug });
+    } catch (snapshotError) {
+      emitter.log('warn', 'snapshot.failed', {
+        error: snapshotError instanceof Error ? snapshotError.message : snapshotError,
+      });
+    }
 
+    let website = null;
+    let persistedPages: Array<{ slug: string; html: string; publicPath: string }> | undefined;
+    if (persist) {
+      emitter.stage('persist', 'start', { websiteId: websiteId ?? null });
+      let targetWebsite = websiteId
+        ? await prisma.website.findFirst({ where: { id: websiteId, userId } })
+        : null;
 
-      if (userId) {
-        const { provider, settings } = await aiService.getUserProvider(userId);
-        // 修复：使用生成模式专用的提示词，而不是通用系统提示词
-        const customPrompt = settings?.generatePrompt || settings?.systemPrompt;
-        const model = aiService.getModelFromSettings(settings);
-
-        // 🔥 关键调试：确认实际使用的provider
-        // console.log('🔍 实际使用的Provider信息:', {
-        //   providerType: provider.constructor.name,
-        //   hasStreamMethod: !!provider.generateWebsiteStream,
-        //   userAiProvider: settings?.aiProvider || 'default',
-        //   selectedModel: model,
-        //   hasApiKey: !!(settings?.deepseekApiKey || settings?.openaiApiKey || settings?.anthropicApiKey)
-        // });
-        
-        // 检查provider是否支持流式生成
-        if (provider.generateWebsiteStream) {
-          await provider.generateWebsiteStream(prompt, (chunk: any) => {
-            const timestamp = new Date().toISOString();
-            // console.log(`📤 [${timestamp}] 路由发送数据块:`, {
-            //   type: chunk.type,
-            //   contentLength: chunk.content?.length || 0,
-            //   contentPreview: chunk.content?.substring(0, 30) || '',
-            //   totalHtml: fullHtml.length,
-            //   totalReply: aiReply.length
-            // });
-            
-            if (chunk.type === 'html') {
-              // 在累积到fullHtml之前，先验证内容是否为纯净HTML
-              const pureHtml = extractPureHtmlFromResponse(chunk.content);
-              if (pureHtml) {
-                fullHtml += pureHtml;
-                const responseData = { type: 'html_chunk', content: pureHtml, fullHtml };
-                res.write(`data: ${JSON.stringify(responseData)}\n\n`);
-                console.log(`📤 [${timestamp}] 纯净HTML块已写入响应流 (${pureHtml.length} chars)`);
-              } else {
-                console.log(`⏭️ [${timestamp}] 跳过非纯净HTML内容: ${chunk.content.substring(0, 50)}...`);
-              }
-            } else if (chunk.type === 'reply') {
-              // 不累积reply内容到fullHtml，只记录
-              console.log(`📝 [${timestamp}] Reply内容: ${chunk.content.substring(0, 50)}...`);
-            }
-          }, userId, customPrompt, model);
-        } else {
-          // 如果不支持流式，降级为普通生成然后分块发送
-          const result = await provider.generateWebsite(prompt, userId, customPrompt, model);
-          fullHtml = result.html;
-          aiReply = result.reply;
-          
-          // 模拟流式发送，只发送HTML代码块，不发送描述性回复
-          const chunks = fullHtml.match(/.{1,100}/g) || [fullHtml];
-          for (let i = 0; i < chunks.length; i++) {
-            setTimeout(() => {
-              res.write(`data: ${JSON.stringify({
-                type: 'html_chunk',
-                content: chunks[i],
-                fullHtml: fullHtml.slice(0, chunks.slice(0, i + 1).join('').length)
-              })}\n\n`);
-            }, i * 100);
-          }
-
-          // 不发送reply块给前端，避免在代码编辑器中显示描述文字
-        }
-      } else {
-        throw new Error('User ID is required for streaming generation');
-      }
-
-      // 检查代码完整性，如果不完整则自动继续生成
-      const checkCodeCompleteness = (code: string): { isComplete: boolean; missingParts: string[] } => {
-        const missingParts: string[] = [];
-
-        if (!code.includes('<!DOCTYPE html>')) missingParts.push('DOCTYPE声明');
-        if (!code.includes('<html')) missingParts.push('html标签');
-        if (!code.includes('<head')) missingParts.push('head标签');
-        if (!code.includes('<body')) missingParts.push('body标签');
-        if (!code.includes('</html>')) missingParts.push('html结束标签');
-        if (!code.includes('</body>')) missingParts.push('body结束标签');
-        if (!code.includes('</head>')) missingParts.push('head结束标签');
-
-        // 检查是否有基本的样式或内容
-        const hasBasicContent = code.includes('<h1') || code.includes('<div') ||
-                               code.includes('<section') || code.includes('<p');
-        if (!hasBasicContent) missingParts.push('基本内容');
-
-        return {
-          isComplete: missingParts.length === 0,
-          missingParts
-        };
-      };
-
-      const completeness = checkCodeCompleteness(fullHtml);
-
-      if (!completeness.isComplete) {
-        console.log('检测到代码不完整，尝试自动补全:', completeness.missingParts);
-
-        try {
-          // 使用AI生成缺失的部分
-          const completionPrompt = `请补全以下不完整的HTML代码，缺失的部分包括：${completeness.missingParts.join('、')}
-
-当前代码：
-${fullHtml}
-
-请提供完整的、可运行的HTML代码，不要添加任何解释。`;
-
-          const completionResult = await aiService.generateWebsite(completionPrompt, userId);
-
-          if (completionResult.html && completionResult.html.length > fullHtml.length) {
-            fullHtml = completionResult.html;
-            console.log('代码补全成功，新的代码长度:', fullHtml.length);
-          }
-        } catch (completionError) {
-          console.warn('自动补全失败，使用原始代码:', completionError);
-        }
-      }
-
-      // 保存到数据库
-      let website;
-      if (websiteId) {
-        website = await prisma.website.update({
-          where: { id: websiteId, userId },
-          data: { content: fullHtml, updatedAt: new Date() },
-        });
-      } else {
-        website = await prisma.website.create({
+      if (!targetWebsite) {
+        targetWebsite = await prisma.website.create({
           data: {
             userId,
             domain: `temp-${Date.now()}.example.com`,
             title: 'AI Generated Website',
-            content: fullHtml,
+            content: '',
             status: 'draft',
           },
         });
       }
 
-      res.write(`data: ${JSON.stringify({
-        type: 'complete',
-        website,
-        content: fullHtml,
-        reply: aiReply,
-        autoCompleted: !completeness.isComplete
-      })}\n\n`);
-      res.end();
-
-    } catch (error: any) {
-      logger.error('Stream generate website error:', error);
-      res.write(`data: ${JSON.stringify({ type: 'error', error: error.message || '生成网站失败' })}\n\n`);
-      res.end();
+      const persistResult = await persistWebsiteContent(
+        targetWebsite.id,
+        userId,
+        composerResult.pages,
+        composerResult.html,
+        requestId,
+      );
+      website = persistResult.website;
+      persistedPages = persistResult.pages;
+      emitter.stage('persist', 'success', { websiteId: website?.id ?? null });
     }
+
+    const finalHtml = persistedPages && persistedPages.length > 0
+      ? persistedPages[0].html
+      : composerResult.html;
+
+    emitter.complete({
+      plan: composerResult.plan,
+      html: finalHtml,
+      reply: plannerResult.success ? 'Website plan generated successfully.' : 'Fallback template applied due to planner error.',
+      metadata: {
+        planner: {
+          success: plannerResult.success,
+          attempts: plannerResult.attempts,
+          error: plannerResult.error,
+          ...plannerResult.metadata,
+        },
+        composer: composerResult.metadata,
+      },
+      snapshot: composerResult.snapshot,
+      website,
+      pages: persistedPages ?? composerResult.pages,
+    });
+
+    recordPipelineSuccess({
+      stage: 'composer',
+      templateSlug: composerResult.plan.page.slug,
+      durationMs: composerResult.metadata?.durationMs,
+      requestId,
+      metadata: composerResult.metadata,
+    });
   } catch (error) {
-    logger.error('Generate stream setup error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to setup stream generation' 
+    const message = error instanceof Error ? error.message : 'Unexpected error';
+    logger.error('generate-stream.failed', error);
+    emitter.error(message, {
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    recordPipelineFailure({
+      stage: 'composer',
+      reason: message,
+      requestId,
     });
   }
 });
@@ -1133,3 +1209,36 @@ router.post('/detect-mode', authenticate, async (req: any, res: Response) => {
 });
 
 export default router;
+async function persistWebsiteContent(
+  websiteId: string,
+  userId: string,
+  pages: Array<{ slug: string; html: string }> | undefined,
+  fallbackHtml: string,
+  requestId?: string,
+) {
+  const effectivePages = Array.isArray(pages) && pages.length > 0
+    ? pages
+    : [{ slug: 'index', html: fallbackHtml }];
+
+  const assetResult = await persistWebsiteAssets(websiteId, effectivePages, { requestId });
+  const mainHtml = assetResult.pages[0]?.html ?? fallbackHtml;
+
+  const website = await prisma.website.update({
+    where: { id: websiteId },
+    data: {
+      content: mainHtml,
+      html: mainHtml,
+      css: null,
+      js: null,
+      updatedAt: new Date(),
+    },
+  });
+
+  const publicPages = assetResult.pages.map((page) => ({
+    slug: page.slug,
+    html: page.html,
+    publicPath: page.publicPath,
+  }));
+
+  return { website, pages: publicPages, mainHtml };
+}

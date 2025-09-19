@@ -12,7 +12,9 @@ export type Route =
   | 'tokens'
   | 'templates'
   | 'components'
-  | 'uploadZip';
+  | 'uploadZip'
+  | 'prompts'
+  | 'insights';
 
 interface RouterState {
   currentRoute: Route;
@@ -35,7 +37,9 @@ export const useRouter = create<RouterState>((set) => ({
       tokens: '/tokens',
       templates: '/templates',
       components: '/components',
-      uploadZip: '/upload-zip'
+      uploadZip: '/upload-zip',
+      prompts: '/prompts',
+      insights: '/insights'
     };
     
     const url = routeMap[route] || '/dashboard';
@@ -62,7 +66,9 @@ const initializeRouter = () => {
     '/tokens': 'tokens',
     '/templates': 'templates',
     '/components': 'components',
-    '/upload-zip': 'uploadZip'
+    '/upload-zip': 'uploadZip',
+    '/prompts': 'prompts',
+    '/insights': 'insights'
   };
   
   const route = routeMap[path] || 'dashboard';

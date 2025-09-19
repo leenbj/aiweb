@@ -19,12 +19,13 @@
     "moduleResolution": "node",
     "baseUrl": "./src",
     "paths": {
-      "@/*": ["./*"],
-      "@/shared/*": ["../shared/*"]
+      "@/shared/*": ["../../shared/*"],
+      "@/*": ["./*"]
     }
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "../shared/**/*"
   ],
   "exclude": [
     "node_modules",

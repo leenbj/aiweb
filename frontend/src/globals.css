@@ -134,19 +134,10 @@
 
   /* 主视图顶部安全区与防折叠处理 */
   .app-main {
-    /* 顶部留白：兼顾安全区与可视区，避免内容被顶端遮挡 */
-    padding-top: calc(env(safe-area-inset-top, 0px) + 24px);
-    /* 滚动到锚点/路由切换时，保留顶部可见空间 */
-    scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 24px);
-    /* 防止子级滚动影响到页面整体，避免“整页被带动” */
+    /* 仅保留安全区所需的最小顶距，避免额外 24~32px 空白 */
+    padding-top: env(safe-area-inset-top, 0px);
+    scroll-padding-top: env(safe-area-inset-top, 0px);
     overscroll-behavior: contain;
-  }
-  @media (min-width: 768px) {
-    .app-main {
-      /* 对齐过去的 md:pt-8（约 32px） */
-      padding-top: calc(env(safe-area-inset-top, 0px) + 32px);
-      scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 32px);
-    }
   }
 }
 

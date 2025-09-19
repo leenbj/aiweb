@@ -13,6 +13,7 @@ import {
   Code,
   Settings,
   BarChart3,
+  Activity,
   Globe,
   Rocket,
   LogOut,
@@ -56,10 +57,22 @@ const navigation = [
     description: 'Token消耗与费用'
   },
   {
+    name: '模板洞察',
+    route: 'insights' as Route,
+    icon: Activity,
+    description: '模板与AI运行指标'
+  },
+  {
     name: '模板库',
     route: 'templates' as Route,
     icon: Code,
     description: '浏览与检索模板'
+  },
+  {
+    name: 'Prompt 管理',
+    route: 'prompts' as Route,
+    icon: Sparkles,
+    description: '管理提示词与流水线状态'
   },
   {
     name: '组件库',
@@ -80,6 +93,9 @@ const navigation = [
     description: '账户和偏好设置'
   }
 ];
+
+const COLLAPSED_WIDTH = 64;
+const EXPANDED_WIDTH = 240;
 
 interface DashboardSidebarProps {
   isCollapsed: boolean;
@@ -184,30 +200,30 @@ export function DashboardSidebar({ isCollapsed, onToggle }: DashboardSidebarProp
   };
 
   return (
-    <motion.div 
-      animate={{ width: isCollapsed ? '4rem' : '16rem' }}
-      transition={{ duration: 0.3, ease: 'easeInOut' }}
-      className="h-screen min-h-0 bg-background border-r flex flex-col relative overflow-hidden"
+    <motion.aside
+      layout
+      initial={false}
+      animate={{ width: isCollapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH }}
+      transition={{ type: 'spring', stiffness: 260, damping: 30 }}
+      className="h-screen min-h-0 bg-background border-r flex flex-col relative overflow-visible"
     >
-      {/* Toggle Button */}
+      {/* Toggle Handle */}
       <motion.div
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.95 }}
+        className="absolute inset-y-0 right-0 z-10 flex flex-col items-center"
+        aria-hidden="true"
       >
-        <Button
-          variant="ghost"
-          size="sm"
+        <button
           onClick={onToggle}
-          className="absolute -right-3 top-6 z-10 w-6 h-6 p-0 rounded-full border bg-background shadow-md hover:shadow-lg transition-shadow"
-          title={`${isCollapsed ? '展开' : '收起'}侧边栏 (Ctrl+B)`}
+          className="mt-3 flex h-7 w-7 translate-x-1/2 items-center justify-center rounded-full border border-slate-200/60 bg-white/70 text-slate-500 transition-colors transform-gpu backdrop-blur hover:text-slate-700"
         >
-          <motion.div
+          <motion.span
             animate={{ rotate: isCollapsed ? 0 : 180 }}
-            transition={{ duration: 0.2 }}
+            transition={{ type: 'spring', stiffness: 280, damping: 16 }}
+            className="flex items-center justify-center"
           >
-            <ChevronRight className="w-3 h-3" />
-          </motion.div>
-        </Button>
+            <ChevronRight className="h-3 w-3" />
+          </motion.span>
+        </button>
       </motion.div>
 
       {/* Header */}
@@ -358,6 +374,6 @@ export function DashboardSidebar({ isCollapsed, onToggle }: DashboardSidebarProp
           </div>
         )}
       </div>
-    </motion.div>
+    </motion.aside>
   );
 }

@@ -9,6 +9,8 @@ import { extractThemeTokens } from './themeExtractor';
 import { addMemoryTemplate, getMemoryTemplateBySlug } from '../templateMemory';
 import { prisma } from '../../database';
 import { logger } from '../../utils/logger';
+import { validateTemplateZip, TemplateZipValidationError } from '../../utils/templates/zipSchemaValidator';
+import { emitTemplateImported, emitTemplateImportFailed } from '../../events/templateEvents';
 
 const UPLOADS_ROOT = process.env.UPLOADS_ROOT || process.env.UPLOAD_PATH || './uploads';
 
@@ -45,94 +47,129 @@ export async function importZipToTemplates(zipBuffer: Buffer, userId: string, op
   const startedAt = Date.now();
   const logMeta = { importId, userId, requestId: opts.requestId };
 
-  const zip = new AdmZip(zipBuffer);
-  const entries = zip.getEntries();
-  logger.info('zipImporter.start', { ...logMeta, entries: entries.length });
-
-  const pages: string[] = [];
-  const componentSet = new Set<string>();
-  const takenSlugs = new Set<string>();
   const assetsBase = `/uploads/u_${userId}/${importId}/`;
-  let cssBundle = '';
 
-  for (const entry of entries) {
-    if (entry.isDirectory) continue;
-    let rel: string;
-    try {
-      rel = ensureRelative(entry.entryName);
-    } catch {
-      logger.warn('zipImporter.skipped.invalidPath', { ...logMeta, entry: entry.entryName });
-      continue;
-    }
-    if (rel.startsWith('__MACOSX/')) continue;
-    if (!isAllowed(rel)) continue;
-
-    const ext = path.extname(rel).toLowerCase();
-    const content = entry.getData();
-
-    if (HTML_EXTS.has(ext)) {
-      const html = content.toString('utf8');
-      const $ = cheerio.load(html, { decodeEntities: false } as any);
-      const title = $('title').first().text().trim();
-      const baseName = path.basename(rel, ext);
-      const pageName = title || baseName;
-      const baseSlug = toSlug(pageName) || toSlug(baseName) || `page-${pages.length + 1}`;
-      const pageSlug = await ensureUniqueSlug(baseSlug, takenSlugs);
-
-      const previewHtml = rewriteAssets(html, assetsBase, rel);
-
-      const compSlugs = await processComponentCandidates($, { pageSlug, assetsBase, takenSlugs, relPath: rel });
-      compSlugs.forEach((s) => componentSet.add(s));
-
-      const pageRecord: any = {
-        type: 'page',
-        name: pageName || pageSlug,
-        slug: pageSlug,
-        engine: 'plain',
-        description: `Imported from ZIP: ${rel}`,
-        code: html,
-        tags: [] as string[],
-        previewHtml,
-      };
-      try { await prisma.template.create({ data: pageRecord }); }
-      catch (err) { addMemoryTemplate(pageRecord); logger.warn('zipImporter.page.storedInMemory', { ...logMeta, slug: pageSlug, error: (err as Error)?.message }); }
-
-      pages.push(pageSlug);
-    } else {
-      const outPath = safeJoinUploads(baseDir, rel);
-      try {
-        await fs.mkdir(path.dirname(outPath), { recursive: true });
-        await fs.writeFile(outPath, content);
-      } catch (err) {
-        logger.warn('zipImporter.asset.persistFailed', { ...logMeta, entry: rel, error: (err as Error)?.message });
-      }
-      if (ext === '.css') {
-        try { cssBundle += content.toString('utf8') + '\n'; } catch {}
-      }
-    }
-  }
-
-  let themeSlug: string | undefined;
   try {
-    const { tokens, css } = extractThemeTokens(cssBundle);
-    if (tokens && Object.keys(tokens).length) {
-      themeSlug = `theme-${importId}`;
-      const themeRecord: any = {
-        type: 'theme', name: 'Default Theme', slug: themeSlug, engine: 'plain',
-        description: `Extracted tokens from ZIP ${importId}`,
-        code: css || '', tokensJson: tokens, tags: ['theme'] as string[],
-      };
-      try { await prisma.template.create({ data: themeRecord }); }
-      catch (err) { addMemoryTemplate(themeRecord); logger.warn('zipImporter.theme.storedInMemory', { ...logMeta, slug: themeSlug, error: (err as Error)?.message }); }
+    const zip = new AdmZip(zipBuffer);
+    const entries = zip.getEntries();
+    logger.info('zipImporter.start', { ...logMeta, entries: entries.length });
+
+    try {
+      validateTemplateZip(entries);
+    } catch (err) {
+      if (err instanceof TemplateZipValidationError) {
+        logger.warn('zipImporter.validationFailed', { ...logMeta, errors: err.details });
+      }
+      throw err;
     }
-  } catch (err) {
-    logger.warn('zipImporter.theme.extractFailed', { ...logMeta, error: (err as Error)?.message });
+
+    const pages: string[] = [];
+    const componentSet = new Set<string>();
+    const takenSlugs = new Set<string>();
+    let cssBundle = '';
+
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      let rel: string;
+      try {
+        rel = ensureRelative(entry.entryName);
+      } catch {
+        logger.warn('zipImporter.skipped.invalidPath', { ...logMeta, entry: entry.entryName });
+        continue;
+      }
+      if (rel.startsWith('__MACOSX/')) continue;
+      if (!isAllowed(rel)) continue;
+
+      const ext = path.extname(rel).toLowerCase();
+      const content = entry.getData();
+
+      if (HTML_EXTS.has(ext)) {
+        const html = content.toString('utf8');
+        const $ = cheerio.load(html, { decodeEntities: false } as any);
+        const title = $('title').first().text().trim();
+        const baseName = path.basename(rel, ext);
+        const pageName = title || baseName;
+        const baseSlug = toSlug(pageName) || toSlug(baseName) || `page-${pages.length + 1}`;
+        const pageSlug = await ensureUniqueSlug(baseSlug, takenSlugs);
+
+        const previewHtml = rewriteAssets(html, assetsBase, rel);
+
+        const compSlugs = await processComponentCandidates($, { pageSlug, assetsBase, takenSlugs, relPath: rel });
+        compSlugs.forEach((s) => componentSet.add(s));
+
+        const pageRecord: any = {
+          type: 'page',
+          name: pageName || pageSlug,
+          slug: pageSlug,
+          engine: 'plain',
+          description: `Imported from ZIP: ${rel}`,
+          code: html,
+          tags: [] as string[],
+          previewHtml,
+        };
+        try { await prisma.template.create({ data: pageRecord }); }
+        catch (err) { addMemoryTemplate(pageRecord); logger.warn('zipImporter.page.storedInMemory', { ...logMeta, slug: pageSlug, error: (err as Error)?.message }); }
+
+        pages.push(pageSlug);
+      } else {
+        const outPath = safeJoinUploads(baseDir, rel);
+        try {
+          await fs.mkdir(path.dirname(outPath), { recursive: true });
+          await fs.writeFile(outPath, content);
+        } catch (err) {
+          logger.warn('zipImporter.asset.persistFailed', { ...logMeta, entry: rel, error: (err as Error)?.message });
+        }
+        if (ext === '.css') {
+          try { cssBundle += content.toString('utf8') + '\n'; } catch {}
+        }
+      }
+    }
+
+    let themeSlug: string | undefined;
+    try {
+      const { tokens, css } = extractThemeTokens(cssBundle);
+      if (tokens && Object.keys(tokens).length) {
+        themeSlug = `theme-${importId}`;
+        const themeRecord: any = {
+          type: 'theme', name: 'Default Theme', slug: themeSlug, engine: 'plain',
+          description: `Extracted tokens from ZIP ${importId}`,
+          code: css || '', tokensJson: tokens, tags: ['theme'] as string[],
+        };
+        try { await prisma.template.create({ data: themeRecord }); }
+        catch (err) { addMemoryTemplate(themeRecord); logger.warn('zipImporter.theme.storedInMemory', { ...logMeta, slug: themeSlug, error: (err as Error)?.message }); }
+      }
+    } catch (err) {
+      logger.warn('zipImporter.theme.extractFailed', { ...logMeta, error: (err as Error)?.message });
+    }
+
+    const components = Array.from(componentSet);
+    const durationMs = Date.now() - startedAt;
+    logger.info('zipImporter.completed', { ...logMeta, pages: pages.length, components: components.length, durationMs });
+
+    emitTemplateImported({
+      importId,
+      userId,
+      pages,
+      components,
+      theme: themeSlug,
+      assetsBase,
+      durationMs,
+      requestId: opts.requestId,
+    });
+
+    return { importId, pages, components, theme: themeSlug || 'default', assetsBase };
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    emitTemplateImportFailed({
+      importId,
+      userId,
+      durationMs,
+      error,
+      details: (error as any)?.details,
+      requestId: opts.requestId,
+    });
+    throw error;
   }
-
-  const components = Array.from(componentSet);
-  logger.info('zipImporter.completed', { ...logMeta, pages: pages.length, components: components.length, durationMs: Date.now() - startedAt });
-
-  return { importId, pages, components, theme: themeSlug || 'default', assetsBase };
 }
 
 function isAllowed(relPath: string) {

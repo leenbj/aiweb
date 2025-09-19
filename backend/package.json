@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.60.0",
-    "@prisma/client": "^5.7.1",
+    "@prisma/client": "^5.18.0",
     "anthropic": "^0.0.0",
     "bcrypt": "^5.1.1",
     "adm-zip": "^0.5.12",
@@ -35,10 +35,11 @@
     "node-cron": "^3.0.3",
     "nodemailer": "^6.9.8",
     "openai": "^4.20.1",
-    "prisma": "^5.7.1",
+    "prisma": "^5.18.0",
     "punycode": "^2.3.1",
     "rate-limiter-flexible": "^7.2.0",
     "sharp": "^0.33.1",
+    "semver": "^7.6.2",
     "uuid": "^9.0.1",
     "ws": "^8.14.2"
   },

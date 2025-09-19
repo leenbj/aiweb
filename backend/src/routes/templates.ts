@@ -4,11 +4,19 @@ import { logger } from '../utils/logger';
 import { importZipToTemplates } from '../services/importer/zipImporter';
 import { prisma } from '../database';
 import { renderTemplate, composePage } from '../services/templateRenderer';
-import { searchTemplates } from '../services/templateIndex';
+import { refreshTemplateIndex, searchTemplates } from '../services/templateIndex';
+import { handleGetTemplateSummary } from '../services/templates/templatesController';
 import { getMemoryTemplateBySlug } from '../services/templateMemory';
+import { onTemplateImported, onTemplateImportFailed } from '../events/templateEvents';
+import { authenticate } from '../middleware/auth';
 
 import { exportTemplateArchive } from '../services/templateExporter';
-import { createTemplateVersion, rollbackTemplateVersion } from '../services/templateVersioning';
+import {
+  createTemplateVersion,
+  rollbackTemplateVersion,
+  listTemplateSnapshots,
+  rollbackTemplateSnapshot,
+} from '../services/templateVersioning';
 
 
 const router = express.Router();
@@ -26,6 +34,7 @@ const upload = multer({
 });
 
 // POST /api/templates/import-zip
+// See docs/api/templates.md#import-zip-endpoint for payload and response contract.
 router.post('/import-zip', upload.single('file'), async (req, res) => {
 
   const startedAt = Date.now();
@@ -47,11 +56,19 @@ router.post('/import-zip', upload.single('file'), async (req, res) => {
     });
     return res.json({ success: true, ...result });
   } catch (err: any) {
-    logger.error('import-zip error', {
+    const status = err?.status || err?.statusCode || 500;
+    const payload: any = { success: false, error: err?.message || 'Server error' };
+    if (err?.details) payload.details = err.details;
+
+    const logLevel = status >= 500 ? 'error' : 'warn';
+    logger[logLevel as 'error' | 'warn']('import-zip error', {
       durationMs: Date.now() - startedAt,
+      status,
       error: err instanceof Error ? { message: err.message, stack: err.stack } : err,
+      details: err?.details,
     });
-    res.status(500).json({ success: false, error: err?.message || 'Server error' });
+
+    res.status(status).json(payload);
 
   }
 });
@@ -69,6 +86,8 @@ router.get('/search', async (req, res) => {
     res.status(500).json({ success: false, error: err?.message || 'Server error' });
   }
 });
+
+router.get('/summary', handleGetTemplateSummary);
 
 router.get('/:id/export', async (req, res) => {
 
@@ -126,21 +145,63 @@ router.post('/:id/versions', async (req, res) => {
   }
 });
 
-// POST /api/templates/:id/rollback  { version: "1.1.0" }
-router.post('/:id/rollback', async (req, res) => {
-  const startedAt = Date.now();
+// GET /api/templates/:id/snapshots
+router.get('/:id/snapshots', authenticate, async (req, res) => {
   const { id } = req.params;
-  const { version } = req.body || {};
-  if (!version || typeof version !== 'string') {
-    return res.status(400).json({ success: false, error: 'version is required and must be string' });
+  const userId = (req as any).user?.id;
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
   }
   try {
-    const r = await rollbackTemplateVersion(id, version, { requestId: getRequestId(req) });
-    res.json({ success: true, data: r });
+    const data = await listTemplateSnapshots(id);
+    res.json({ success: true, data });
   } catch (err: any) {
-    const status = err?.status || err?.statusCode || (String(err?.message || '').includes('not found') ? 404 : 500);
-    logger.error('template version rollback error', { id, version, durationMs: Date.now() - startedAt, error: err?.message });
-    res.status(status).json({ success: false, error: err?.message || 'Rollback failed' });
+    const status = err?.status || err?.statusCode || 500;
+    logger.error('template snapshot list error', { id, status, error: err?.message });
+    res.status(status).json({ success: false, error: err?.message || 'Snapshot list failed' });
+  }
+});
+
+// POST /api/templates/:id/rollback  { version: "1.1.0" | snapshotId: "snap_123" }
+router.post('/:id/rollback', authenticate, async (req, res) => {
+  const startedAt = Date.now();
+  const { id } = req.params;
+  const { version, snapshotId } = req.body || {};
+  const userId = (req as any).user?.id;
+  const userName = (req as any).user?.name;
+
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
+  }
+  if ((version && snapshotId) || (!version && !snapshotId)) {
+    return res.status(400).json({ success: false, error: 'Provide either version or snapshotId' });
+  }
+
+  try {
+    const result = snapshotId
+      ? await rollbackTemplateSnapshot(id, snapshotId, {
+          requestId: getRequestId(req),
+          userId,
+          userName,
+        })
+      : await rollbackTemplateVersion(id, version, {
+          requestId: getRequestId(req),
+          userId,
+          userName,
+        });
+
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    const message = err?.message || 'Rollback failed';
+    const status = err?.status || err?.statusCode || (String(message).includes('not found') ? 404 : 500);
+    logger.error('template version rollback error', {
+      id,
+      version,
+      snapshotId,
+      durationMs: Date.now() - startedAt,
+      error: message,
+    });
+    res.status(status).json({ success: false, error: message });
   }
 });
 
@@ -204,3 +265,26 @@ router.post('/compose', async (req, res) => {
 });
 
 export default router;
+onTemplateImported(async (payload) => {
+  try {
+    await refreshTemplateIndex({
+      reason: 'zip-import',
+      importId: payload.importId,
+      requestId: payload.requestId,
+    });
+  } catch (err) {
+    logger.error('template index refresh failed', {
+      importId: payload.importId,
+      error: err instanceof Error ? { message: err.message, stack: err.stack } : err,
+    });
+  }
+});
+
+onTemplateImportFailed((payload) => {
+  logger.warn('template import failed event', {
+    importId: payload.importId,
+    durationMs: payload.durationMs,
+    error: payload.error instanceof Error ? { message: payload.error.message, stack: payload.error.stack } : payload.error,
+    details: payload.details,
+  });
+});

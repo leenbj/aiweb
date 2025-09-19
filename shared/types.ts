@@ -17,6 +17,9 @@ export interface Website {
   title: string;
   description?: string;
   content: string; // HTML/CSS/JS content
+  html?: string | null;
+  css?: string | null;
+  js?: string | null;
   status: 'draft' | 'published' | 'deploying' | 'error';
   sslStatus: 'pending' | 'active' | 'error';
   dnsStatus: 'pending' | 'resolved' | 'error';
@@ -168,4 +171,209 @@ export interface TemplateManifest {
   schema?: Record<string, any> | null;
   aiHints?: TemplateAIHints;
   assets?: string[];
+  source?: TemplateSource;
+  planSnapshot?: Record<string, any> | null;
+}
+
+export type TemplateSource = 'ZIP' | 'PROMPT' | 'MANUAL' | 'SYSTEM';
+
+export type PromptStatus = 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED' | 'ARCHIVED';
+export type PromptSource = 'OPERATION' | 'SYSTEM';
+export type PipelineStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'ON_HOLD';
+export type ImportType = 'ZIP' | 'PROMPT';
+
+export interface UiPrompt {
+  id: string;
+  name: string;
+  rawText: string;
+  tags: string[];
+  status: PromptStatus;
+  source: PromptSource;
+  targetSlug?: string | null;
+  latestJobId?: string | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}
+
+export interface PromptGenerationRun {
+  id: string;
+  promptId: string;
+  status: PipelineStatus;
+  errorMessage?: string | null;
+  artifactPath?: string | null;
+  startedAt?: Date | string | null;
+  finishedAt?: Date | string | null;
+}
+
+export interface TemplatePipelineJob {
+  id: string;
+  promptId?: string | null;
+  importType: ImportType;
+  templateIds: string[];
+  versionIds: string[];
+  status: PipelineStatus;
+  retryCount: number;
+  metadata?: Record<string, any> | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}
+
+export interface TemplateSummary {
+  id: string;
+  slug: string;
+  name: string;
+  type: string;
+  engine: string;
+  version: string;
+  tags: string[];
+  summary: string;
+  keyFields: string[];
+  updatedAt: Date | string;
+}
+
+export interface TemplatePlanPage {
+  slug: string;
+  data?: Record<string, any>;
+}
+
+export interface TemplatePlanComponent {
+  slot: string;
+  slug: string;
+  data?: Record<string, any>;
+}
+
+export interface TemplatePlanTheme {
+  slug: string;
+  data?: Record<string, any>;
+}
+
+export interface TemplatePlan {
+  page: TemplatePlanPage;
+  components: TemplatePlanComponent[];
+  theme?: TemplatePlanTheme | null;
+  pages?: TemplatePlanPage[];
+  metadata?: Record<string, any> | null;
+}
+
+export interface TemplateSnapshotRecord {
+  id: string;
+  templateId: string;
+  versionId?: string | null;
+  plan?: Record<string, any> | null;
+  html?: string | null;
+  css?: string | null;
+  js?: string | null;
+  components?: Array<{ slug: string; html: string }> | null;
+  metadata?: Record<string, any> | null;
+  createdBy?: string | null;
+  createdByName?: string | null;
+  requestId?: string | null;
+  createdAt: Date | string;
+}
+
+export interface PromptReviewTemplateSummary {
+  id: string;
+  slug: string;
+  name: string;
+  type: string;
+  version: string;
+  tags: string[];
+  updatedAt: string;
+  previewUrl: string;
+}
+
+export interface PromptReviewJobSummary {
+  id: string;
+  status: string;
+  importType: string;
+  retryCount: number;
+  templateIds: string[];
+  versionIds: string[];
+  metadata?: Record<string, any> | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+  templates: Array<PromptReviewTemplateSummary | { id: string; missing?: boolean }>;
+}
+
+export interface PromptReviewItem {
+  prompt: {
+    id: string;
+    name: string;
+    tags: string[];
+    status: PromptStatus;
+    source: PromptSource;
+    targetSlug?: string | null;
+    latestJobId?: string | null;
+    rawText?: string;
+    createdAt: Date | string;
+    updatedAt: Date | string;
+  };
+  latestRun: {
+    id: string;
+    status: PipelineStatus;
+    errorMessage?: string | null;
+    artifactPath?: string | null;
+    startedAt?: Date | string | null;
+    finishedAt?: Date | string | null;
+  } | null;
+  latestJob: {
+    id: string;
+    status: PipelineStatus;
+    importType: ImportType;
+    retryCount: number;
+    createdAt: Date | string;
+    updatedAt: Date | string;
+  } | null;
+  jobs: PromptReviewJobSummary[];
+  templateSummaries: PromptReviewTemplateSummary[];
+  templateSlugs: string[];
+  previewUrls: string[];
+  patchDownloadUrls: string[];
+  artifactPath?: string | null;
+  statistics: {
+    totalRuns: number;
+    totalJobs: number;
+  };
+}
+
+export interface PromptReviewResponse {
+  items: PromptReviewItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasNextPage: boolean;
+}
+
+export interface ParsedPromptFile {
+  filename: string;
+  content: string;
+}
+
+export interface ParsedPromptAsset extends ParsedPromptFile {
+  encoding?: 'utf8' | 'base64';
+  contentType?: string;
+}
+
+export interface ParsedPromptDependency extends ParsedPromptFile {
+  kind?: 'component' | 'util' | 'data';
+}
+
+export interface ParsedPrompt {
+  name: string;
+  slug?: string;
+  description?: string;
+  component: {
+    code: string;
+    filename?: string;
+    exportName?: string;
+  };
+  demo?: {
+    code: string;
+    filename?: string;
+  };
+  dependencies?: ParsedPromptDependency[];
+  assets?: ParsedPromptAsset[];
+  styles?: ParsedPromptFile[];
+  npmPackages?: Array<{ name: string; version?: string }>;
+  notes?: string[];
 }

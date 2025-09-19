@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import type { APIResponse, Website, User, AIConversation, UserSettings, TokenUsage, DailyUsage } from '@/shared/types';
 
 // Base API configuration
@@ -49,8 +49,8 @@ class APIClient {
     );
   }
 
-  async get<T>(url: string): Promise<AxiosResponse<APIResponse<T>>> {
-    return this.client.get(url);
+  async get<T>(url: string, config?: AxiosRequestConfig): Promise<AxiosResponse<APIResponse<T>>> {
+    return this.client.get(url, config);
   }
 
   async post<T>(url: string, data?: any): Promise<AxiosResponse<APIResponse<T>>> {
@@ -138,14 +138,14 @@ export const websiteService = {
 // AI service
 export const aiService = {
   generateWebsite: (prompt: string, websiteId?: string, conversationId?: string) =>
-    apiClient.post<{ website: Website; content: string; reply: string }>('/ai/generate', {
+    apiClient.post<{ website: Website; content: string; reply: string; pages?: Array<{ slug: string; html: string; publicPath: string }> }>('/ai/generate', {
       prompt,
       websiteId,
       conversationId,
     }),
   
   editWebsite: (websiteId: string, instructions: string, conversationId?: string) =>
-    apiClient.post<{ website: Website; content: string }>('/ai/edit', {
+    apiClient.post<{ website: Website; content: string; pages?: Array<{ slug: string; html: string; publicPath: string }> }>('/ai/edit', {
       websiteId,
       instructions,
       conversationId,
@@ -154,17 +154,24 @@ export const aiService = {
   // 流式网站生成
   generateWebsiteStream: async (
     prompt: string,
-    onChunk: (chunk: { type: string; content?: string; fullHtml?: string; reply?: string }) => void,
-    onComplete: (result: { website: Website; content: string; reply: string }) => void,
+    onChunk: (chunk: { type: string; content?: string; fullHtml?: string; [key: string]: any }) => void,
+    onComplete: (result: Record<string, any>) => void,
     onError: (error: string) => void,
-    websiteId?: string,
-    abortController?: AbortController
+    options: {
+      websiteId?: string;
+      scenario?: string;
+      filters?: Record<string, any>;
+      persist?: boolean;
+      abortController?: AbortController;
+      onEvent?: (event: Record<string, any>) => void;
+    } = {}
   ) => {
     // 统一token获取逻辑
     const zustandAuth = JSON.parse(localStorage.getItem('auth-storage') || '{}');
     const token = zustandAuth?.state?.token || localStorage.getItem('auth-token');
     const baseURL = (import.meta as any).env?.VITE_API_URL || ((import.meta as any).env?.DEV ? '/api' : 'http://localhost:3001/api');
-    
+    const { websiteId, scenario, filters, persist, abortController, onEvent } = options;
+
     try {
       const response = await fetch(`${baseURL}/ai/generate-stream`, {
         method: 'POST',
@@ -172,7 +179,7 @@ export const aiService = {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ prompt, websiteId }),
+        body: JSON.stringify({ prompt, websiteId, scenario, filters, persist }),
         signal: abortController?.signal,
       });
 
@@ -186,34 +193,72 @@ export const aiService = {
       }
 
       const decoder = new TextDecoder();
+      let buffer = '';
+      let previewHtml = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === 'html_chunk' || data.type === 'reply') {
-                onChunk(data);
-              } else if (data.type === 'complete') {
-                onComplete(data);
-                return;
-              } else if (data.type === 'error') {
-                console.error('❌ 前端流式生成错误:', data.error);
-                onError(data.error);
+          if (!line.startsWith('data:')) continue;
+          const payloadText = line.slice(5).trim();
+          if (!payloadText) continue;
+          try {
+            const event = JSON.parse(payloadText);
+            onEvent?.(event);
+
+            switch (event.type) {
+              case 'schema':
+              case 'stage':
+              case 'log':
+              case 'plan':
+                break;
+              case 'preview': {
+                previewHtml = event.html || '';
+                onChunk({
+                  type: 'preview',
+                  content: event.html,
+                  fullHtml: event.html,
+                  components: event.components,
+                  metadata: event.metadata,
+                });
+                break;
+              }
+              case 'complete': {
+                if (event.html && !previewHtml) {
+                  previewHtml = event.html;
+                  onChunk({ type: 'complete', fullHtml: previewHtml });
+                }
+                onComplete(event);
                 return;
               }
-            } catch (e) {
-        
-              // 忽略JSON解析错误，可能是不完整的数据块
+              case 'error': {
+                onError(event.message || event.error || 'Stream error');
+                return;
+              }
+              default: {
+                if (event.type === 'html_chunk' || event.type === 'reply') {
+                  previewHtml = event.fullHtml || event.content || previewHtml;
+                  onChunk(event);
+                }
+              }
             }
+          } catch (parseError) {
+            console.error('SSE parse error', parseError);
           }
         }
+      }
+
+      // 流结束但未收到complete
+      if (previewHtml) {
+        onComplete({ type: 'complete', html: previewHtml });
+      } else {
+        onError('Stream ended before completion');
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
@@ -483,7 +528,7 @@ export const aiService = {
   },
   
   optimizeWebsite: (websiteId: string) =>
-    apiClient.post<{ website: Website; content: string }>('/ai/optimize', {
+    apiClient.post<{ website: Website; content: string; pages?: Array<{ slug: string; html: string; publicPath: string }> }>('/ai/optimize', {
       websiteId,
     }),
   
@@ -511,6 +556,58 @@ export const aiService = {
       provider: string;
       model: string;
     }>('/ai/test-connection', data),
+};
+
+export interface MetricsQueryParams {
+  rangeDays?: number;
+  from?: string;
+  to?: string;
+}
+
+export interface TemplateMetrics {
+  range: { from: string; to: string };
+  templateUsage: Array<{
+    templateId: string;
+    slug: string;
+    name: string;
+    type: string;
+    snapshots: number;
+    lastGeneratedAt: string | null;
+  }>;
+  jobSummary: Record<string, number>;
+  failureReasons: Array<{ reason: string; count: number }>;
+}
+
+export interface AiMetrics {
+  range: { from: string; to: string };
+  latency: {
+    averageMs: number | null;
+    p95Ms: number | null;
+    samples: number;
+  };
+  statusBreakdown: Record<string, number>;
+  recentRuns: Array<{
+    id: string;
+    status: string;
+    durationMs: number | null;
+    finishedAt: string | null;
+    errorMessage?: string | null;
+  }>;
+}
+
+export const metricsService = {
+  async getTemplateMetrics(params?: MetricsQueryParams): Promise<TemplateMetrics> {
+    const response = await apiClient.get<TemplateMetrics>('/metrics/templates', {
+      params,
+    });
+    return (response.data.data ?? response.data) as TemplateMetrics;
+  },
+  async getAiMetrics(params?: MetricsQueryParams): Promise<AiMetrics> {
+    const response = await apiClient.get<AiMetrics>('/metrics/ai', {
+      params,
+    });
+    return (response.data.data ?? response.data) as AiMetrics;
+  },
 };
 
 // Deployment service

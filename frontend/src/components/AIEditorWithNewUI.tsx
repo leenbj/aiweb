@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { Button } from './ui/Button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Input } from './ui/Input';
 import { LoadingSpinner } from './LoadingSpinner';
 import AIAssistantModern from './AIAssistantModern';
 import { CodeEditor } from './CodeEditor';
@@ -10,7 +12,7 @@ import { useWebsiteStore } from '../store/websiteStore';
 import { useRouter } from '../lib/router';
 import { toast } from 'react-hot-toast';
 import { Website } from '@/shared/types';
-import { uploadsService, aiService } from '@/services/api';
+import { uploadsService, aiService, deploymentService } from '@/services/api';
 import {
   Code,
   Eye,
@@ -19,7 +21,10 @@ import {
   Smartphone,
   Monitor,
   Tablet,
-  Loader2
+  Loader2,
+  Minimize2,
+  Rocket,
+  Globe2
 } from 'lucide-react';
 import { templateSDK, type TemplateDTO } from '@/services/templateSDK';
 import { downloadTemplateZip } from '@/utils/templateDownload';
@@ -41,8 +46,8 @@ export function AIEditorWithNewUI() {
   // 获取网站ID：优先URL /editor/[id]，否则从localStorage回退
   const currentPath = window.location.pathname;
   const pathParts = currentPath.split('/');
-  const idFromPath = pathParts[2];
-  const id = idFromPath || (typeof window !== 'undefined' ? localStorage.getItem('editing-website-id') || '' : '');
+  const idFromPath = pathParts[2] || '';
+  const id = idFromPath;
   
   const { navigate } = useRouter();
   const [content, setContent] = useState('');
@@ -57,6 +62,19 @@ export function AIEditorWithNewUI() {
   const cleanupRef = useRef<(() => void) | null>(null);
   const inputTimerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectedImgRef = useRef<HTMLImageElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showFloatingExit, setShowFloatingExit] = useState(false);
+  const fullscreenScrollRef = useRef<HTMLDivElement | null>(null);
+  const [deployDialogOpen, setDeployDialogOpen] = useState(false);
+  const [deployDomain, setDeployDomain] = useState('');
+  const [isDeploying, setIsDeploying] = useState(false);
+  const actionGroupClass = 'flex items-center gap-2 justify-self-end';
+  const actionButtonBase = 'group relative inline-flex h-9 items-center justify-center gap-2 overflow-hidden rounded-full px-4 text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-60';
+  const previewButtonClass = `${actionButtonBase} border border-slate-200 bg-white text-slate-700 shadow-sm hover:-translate-y-0.5 hover:shadow-lg hover:bg-slate-50 focus-visible:ring-slate-300 before:pointer-events-none before:absolute before:inset-0 before:bg-slate-100/60 before:opacity-0 before:transition before:duration-300 before:content-[''] group-hover:before:opacity-100`;
+  const exportButtonClass = `${actionButtonBase} border border-slate-200 bg-slate-50 text-slate-700 shadow-sm hover:-translate-y-0.5 hover:shadow-lg hover:bg-slate-100 focus-visible:ring-slate-300 before:pointer-events-none before:absolute before:inset-0 before:bg-white/60 before:opacity-0 before:transition before:duration-300 before:content-[''] group-hover:before:opacity-100`;
+  const saveButtonClass = `${actionButtonBase} bg-slate-900 text-white shadow-md hover:-translate-y-0.5 hover:shadow-xl focus-visible:ring-slate-500 before:pointer-events-none before:absolute before:inset-0 before:bg-white/10 before:opacity-0 before:transition before:duration-300 before:content-[''] group-hover:before:opacity-100 disabled:opacity-70`;
+  const deployButtonClass = `${actionButtonBase} bg-blue-600 text-white shadow-md hover:-translate-y-0.5 hover:shadow-xl focus-visible:ring-blue-300 before:pointer-events-none before:absolute before:inset-0 before:bg-white/10 before:opacity-0 before:transition before:duration-300 before:content-[''] group-hover:before:opacity-100 disabled:opacity-70`;
   // 移除悬浮代码窗口，改为对话内滚动展示，并实时同步到右侧代码模块
   
   // UI state
@@ -107,7 +125,7 @@ export function AIEditorWithNewUI() {
     })();
     return () => { cancelled = true; };
   }, [composeOpen, composePage, composeThemeSlug]);
-  
+
   const {
     currentWebsite,
     getWebsite,
@@ -163,11 +181,35 @@ export function AIEditorWithNewUI() {
 
   const handleExportTemplate = async () => {
     try {
-      if (!lastExportTemplateId) throw new Error('请先组合页面模板以生成可导出的版本');
-      await downloadTemplateZip(lastExportTemplateId, lastExportTemplateSlug || 'template');
-      toast.success('已开始下载模板 ZIP');
+      if (content && content.trim()) {
+        const JSZip = (await import('jszip')).default;
+        const zip = new JSZip();
+        zip.file('index.html', content);
+        const metadata = {
+          title: projectTitle || 'generated-website',
+          generatedAt: new Date().toISOString(),
+        };
+        zip.file('metadata.json', JSON.stringify(metadata, null, 2));
+        if (initialChat?.length) {
+          zip.file('conversation.json', JSON.stringify(initialChat, null, 2));
+        }
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${(projectTitle || 'website-source').replace(/\s+/g, '-')}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        toast.success('已开始下载源码压缩包');
+        return;
+      }
+      if (!lastExportTemplateId) throw new Error('暂无可导出的源码');
+      await downloadTemplateZip(lastExportTemplateId, lastExportTemplateSlug || 'template-source');
+      toast.success('已开始下载源码压缩包');
     } catch (err: any) {
-      toast.error(err?.message || '导出失败');
+      toast.error(err?.message || '导出源码失败');
     }
   };
 
@@ -178,7 +220,6 @@ export function AIEditorWithNewUI() {
     const domain = `site-${Date.now()}.com`;
     const newWebsite = await createWebsite({ title, description: '通过AI编辑器创建', domain });
     await updateWebsite(newWebsite.id, { content });
-    try { localStorage.setItem('editing-website-id', newWebsite.id); } catch {}
     window.history.pushState({}, '', `/editor/${newWebsite.id}`);
     return newWebsite.id;
   };
@@ -220,14 +261,27 @@ export function AIEditorWithNewUI() {
           } catch (e) {
             setInitialChat([]);
           }
-        } catch (error) {
-          toast.error('加载网站失败');
-          navigate('dashboard');
+        } catch (error: any) {
+          const message = error?.message || '';
+          const notFound = message.includes('Website not found') || error?.code === 'WEBSITE_NOT_FOUND' || error?.response?.status === 404;
+
+          if (notFound) {
+            setCurrentWebsite(null);
+            setContent(getDefaultHTML());
+            setProjectTitle('编号001-未命名');
+            setInitialChat([]);
+          } else {
+            toast.error('加载网站失败');
+            navigate('dashboard');
+          }
         } finally {
           setIsLoading(false);
         }
       } else {
         // New website
+        try {
+          if (!idFromPath) localStorage.removeItem('editing-website-id');
+        } catch {}
         setCurrentWebsite(null);
         setContent(getDefaultHTML());
         setProjectTitle('编号001-未命名');
@@ -237,6 +291,22 @@ export function AIEditorWithNewUI() {
 
     loadWebsite();
   }, [id, getWebsite, setCurrentWebsite, navigate]);
+
+  useEffect(() => {
+    if (!deployDialogOpen) return;
+    const suggested = currentWebsite?.domain || '';
+    if (suggested) {
+      setDeployDomain(suggested);
+      return;
+    }
+    const fallback = projectTitle
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\-\s]/g, '')
+      .replace(/\s+/g, '-');
+    const suggestion = fallback ? `${fallback}.com` : '';
+    setDeployDomain(suggestion);
+  }, [deployDialogOpen, currentWebsite, projectTitle]);
 
   useEffect(() => {
     if (!composeOpen) return;
@@ -319,6 +389,76 @@ export function AIEditorWithNewUI() {
     setGenerationProgress({ progress: 100, stage: '生成完成' });
   };
 
+  const handleOpenDeployDialog = () => {
+    setDeployDialogOpen(true);
+  };
+
+  const handleDeployConfirm = async () => {
+    const domain = deployDomain.trim();
+    if (!domain) {
+      toast.error('请先填写要绑定的域名');
+      return;
+    }
+
+    try {
+      setIsDeploying(true);
+      const websiteId = currentWebsite?.id || await ensureWebsiteSaved();
+      await updateWebsite(websiteId, { content, domain });
+      await deploymentService.deployWebsite(websiteId, domain);
+      toast.success('已发起部署，稍后可在部署管理中查看进度');
+      setDeployDialogOpen(false);
+    } catch (error: any) {
+      const message = error?.response?.data?.error || error?.message || '部署失败';
+      toast.error(message);
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
+  const toggleFullscreen = () => {
+    setIsFullscreen((prev) => !prev);
+    setShowFloatingExit(false);
+  };
+
+  useEffect(() => {
+    if (!isFullscreen) {
+      setShowFloatingExit(false);
+      return;
+    }
+
+    const container = fullscreenScrollRef.current;
+    const iframeElement = iframeRef.current;
+    const iframeWindow = iframeElement?.contentWindow;
+    const iframeDocument = iframeElement?.contentDocument;
+
+    const handleInteraction = () => {
+      setShowFloatingExit(true);
+    };
+
+    container?.addEventListener('scroll', handleInteraction, { passive: true } as AddEventListenerOptions);
+    iframeWindow?.addEventListener('scroll', handleInteraction, { passive: true });
+    iframeWindow?.addEventListener('wheel', handleInteraction, { passive: true });
+    iframeDocument?.addEventListener('wheel', handleInteraction, { passive: true });
+
+    const handleLoad = () => {
+      const win = iframeElement?.contentWindow;
+      const doc = iframeElement?.contentDocument;
+      win?.addEventListener('scroll', handleInteraction, { passive: true });
+      win?.addEventListener('wheel', handleInteraction, { passive: true });
+      doc?.addEventListener('wheel', handleInteraction, { passive: true });
+    };
+
+    iframeElement?.addEventListener('load', handleLoad);
+
+    return () => {
+      container?.removeEventListener('scroll', handleInteraction as EventListenerOrEventListenerObject);
+      iframeWindow?.removeEventListener('scroll', handleInteraction as EventListenerOrEventListenerObject);
+      iframeWindow?.removeEventListener('wheel', handleInteraction as EventListenerOrEventListenerObject);
+      iframeDocument?.removeEventListener('wheel', handleInteraction as EventListenerOrEventListenerObject);
+      iframeElement?.removeEventListener('load', handleLoad);
+    };
+  }, [isFullscreen, content]);
+
   // 直改模式：对预览iframe注入可编辑与选择事件
   useEffect(() => {
     if (viewMode !== 'preview') return;
@@ -335,10 +475,17 @@ export function AIEditorWithNewUI() {
         // 高亮被点击的图片
         const onClick = (e: any) => {
           const target = e.target as HTMLElement;
-          if (target && target.tagName === 'IMG') {
-            setSelectedImg(target as HTMLImageElement);
-            (target as HTMLImageElement).style.outline = '2px solid #22c55e';
-            setTimeout(() => { if (target) (target as HTMLImageElement).style.outline = ''; }, 1200);
+          if (!(target instanceof HTMLElement)) return;
+          const img = target.closest('img');
+          if (img) {
+            if (selectedImgRef.current && selectedImgRef.current !== img) {
+              selectedImgRef.current.style.outline = '';
+              selectedImgRef.current.style.outlineOffset = '';
+            }
+            selectedImgRef.current = img as HTMLImageElement;
+            selectedImgRef.current.style.outline = '2px solid #22c55e';
+            selectedImgRef.current.style.outlineOffset = '3px';
+            setSelectedImg(selectedImgRef.current);
           }
         };
         // 监听文本编辑，节流同步到右侧代码
@@ -360,6 +507,12 @@ export function AIEditorWithNewUI() {
             doc.removeEventListener('click', onClick);
             doc.removeEventListener('input', onInput, true);
             if (inputTimerRef.current) window.clearTimeout(inputTimerRef.current);
+            if (selectedImgRef.current) {
+              selectedImgRef.current.style.outline = '';
+              selectedImgRef.current.style.outlineOffset = '';
+              selectedImgRef.current = null;
+            }
+            setSelectedImg(null);
           } catch {}
         };
       } catch {}
@@ -372,6 +525,11 @@ export function AIEditorWithNewUI() {
     } else {
       cleanupRef.current?.();
       cleanupRef.current = null;
+      if (selectedImgRef.current) {
+        selectedImgRef.current.style.outline = '';
+        selectedImgRef.current.style.outlineOffset = '';
+        selectedImgRef.current = null;
+      }
       setSelectedImg(null);
     }
 
@@ -392,13 +550,40 @@ export function AIEditorWithNewUI() {
   }, [viewMode]);
 
   const handleReplaceImage = async (file: File) => {
-    if (!selectedImg) return;
+    const targetImg = selectedImgRef.current || selectedImg;
+    if (!targetImg) return;
     try {
       const res = await uploadsService.uploadFile(file);
       const url = (res.data as any)?.data?.file?.url || (res.data as any)?.data?.url || '';
       if (!url) return;
       // 替换iframe中的图片
-      selectedImg.src = url;
+      const applyAdaptiveSizing = () => {
+        if (!targetImg) return;
+        targetImg.style.display = 'block';
+        targetImg.style.width = '100%';
+        const parent = targetImg.parentElement as HTMLElement | null;
+        targetImg.style.height = parent && parent.clientHeight > 0 ? '100%' : 'auto';
+        targetImg.style.maxWidth = '100%';
+        targetImg.style.maxHeight = '100%';
+        targetImg.style.objectFit = 'cover';
+      };
+
+      const onLoad = () => {
+        applyAdaptiveSizing();
+        targetImg.removeEventListener('load', onLoad);
+        if (selectedImgRef.current) {
+          selectedImgRef.current.style.outline = '2px solid #22c55e';
+          selectedImgRef.current.style.outlineOffset = '3px';
+        }
+      };
+
+      targetImg.addEventListener('load', onLoad);
+      targetImg.src = url;
+      applyAdaptiveSizing();
+      if (selectedImgRef.current) {
+        selectedImgRef.current.style.outline = '2px solid #22c55e';
+        selectedImgRef.current.style.outlineOffset = '3px';
+      }
       // 同步回到content
       const doc = iframeRef.current?.contentDocument;
       if (doc) {
@@ -415,9 +600,9 @@ export function AIEditorWithNewUI() {
   const getViewportClasses = () => {
     switch (deviceMode) {
       case 'mobile':
-        return 'w-[375px] h-[667px]';
+        return 'w-full max-w-[375px] h-full';
       case 'tablet':
-        return 'w-[768px] h-[600px]';
+        return 'w-full max-w-[768px] h-full';
       default:
         return 'w-full h-full';
     }
@@ -485,7 +670,7 @@ export function AIEditorWithNewUI() {
                 {viewMode === 'preview' && (
                   <>
                     <Button variant={directEdit ? 'default' : 'outline'} size="sm" onClick={() => setDirectEdit(v => !v)}>
-                      {directEdit ? '退出直改' : '开启直改'}
+                      {directEdit ? '退出手动调整' : '手动调整'}
                     </Button>
                     {directEdit && (
                       <>
@@ -546,33 +731,67 @@ export function AIEditorWithNewUI() {
                 </div>
               </div>
 
-              {/* 右侧：下载/保存（靠右对齐） */}
-              <div className="flex items-center gap-2 justify-self-end">
-                <Button variant="outline" size="sm" onClick={() => setComposeOpen(true)}>
-                  从模板组合预览
-                </Button>
-                <Button variant="outline" size="sm" onClick={async () => { const savedId = await ensureWebsiteSaved(); setBuildOpen(true); }}>
-                  构建并预览
-                </Button>
-                <Button variant="outline" size="sm" className="border-gray-200" onClick={handleExportTemplate} disabled={!lastExportTemplateId}>
-                  <Download className="w-4 h-4 mr-2" />
-                  导出 ZIP
-                </Button>
-                <Button 
-                  onClick={handleSave} 
-                  disabled={isUpdating} 
-                  size="sm"
-                  className="bg-blue-600 hover:bg-blue-700"
+              {/* 右侧操作按钮组 */}
+              <div className={actionGroupClass}>
+                <Button
+                  variant="ghost"
+                  onClick={toggleFullscreen}
+                  className={previewButtonClass}
                 >
-                  {isUpdating ? (
+                  {isFullscreen ? (
                     <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      保存中...
+                      <Minimize2 className="relative z-10 w-4 h-4 transition-transform duration-200 group-hover:scale-110" />
+                      <span className="relative z-10">退出</span>
                     </>
                   ) : (
                     <>
-                      <Save className="w-4 h-4 mr-2" />
-                      保存
+                      <Eye className="relative z-10 w-4 h-4 transition-transform duration-200 group-hover:scale-110" />
+                      <span className="relative z-10">预览</span>
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={handleExportTemplate}
+                  disabled={!content && !lastExportTemplateId}
+                  className={exportButtonClass}
+                >
+                  <Download className="relative z-10 w-4 h-4 transition-transform duration-200 group-hover:scale-110" />
+                  <span className="relative z-10">导出</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={handleSave}
+                  disabled={isUpdating}
+                  className={saveButtonClass}
+                >
+                  {isUpdating ? (
+                    <>
+                      <Loader2 className="relative z-10 w-4 h-4 animate-spin" />
+                      <span className="relative z-10">保存中...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="relative z-10 w-4 h-4 transition-transform duration-200 group-hover:scale-110" />
+                      <span className="relative z-10">保存</span>
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={handleOpenDeployDialog}
+                  disabled={isDeploying}
+                  className={deployButtonClass}
+                >
+                  {isDeploying ? (
+                    <>
+                      <Loader2 className="relative z-10 w-4 h-4 animate-spin" />
+                      <span className="relative z-10">部署中...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Rocket className="relative z-10 w-4 h-4 transition-transform duration-200 group-hover:scale-110" />
+                      <span className="relative z-10">部署</span>
                     </>
                   )}
                 </Button>
@@ -580,17 +799,48 @@ export function AIEditorWithNewUI() {
             </div>
         </div>
 
-      <div className="flex-1 min-h-0 overflow-auto bg-white">
+      <div className={`flex-1 min-h-0 overflow-auto bg-white ${isFullscreen ? 'fixed inset-0 z-40 bg-white flex flex-col' : ''}`}>
+        {isFullscreen && !showFloatingExit && (
+          <div className="flex items-center justify-between px-4 py-3 border border-white/40 bg-white/75 backdrop-blur shadow-sm">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">全屏预览模式</h2>
+              <p className="text-xs text-gray-500">滚动页面查看更多内容，点击按钮或按 Esc 可退出全屏。</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={toggleFullscreen}>
+              <Minimize2 className="w-4 h-4 mr-2" />
+              退出全屏
+            </Button>
+          </div>
+        )}
+        {isFullscreen && showFloatingExit && (
+          <button
+            onClick={toggleFullscreen}
+            className="absolute right-6 top-6 z-50 inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-4 py-2 text-xs font-medium text-gray-700 shadow-lg backdrop-blur hover:bg-white hover:border-white transition"
+          >
+            <Minimize2 className="w-3.5 h-3.5" />
+            退出全屏
+          </button>
+        )}
           <Tabs value={viewMode} className="h-full flex flex-col min-h-0">
             <TabsContent value="preview" className="flex-1 min-h-0 p-0 m-0">
-              <div className="h-full w-full overflow-auto">
+              <div
+                ref={isFullscreen ? fullscreenScrollRef : undefined}
+                className={`h-full w-full overflow-auto ${isFullscreen ? 'p-0' : ''}`}
+              >
                 {isGenerating ? (
                   // 生成时显示动画
                   <GenerationAnimation />
                 ) : content ? (
                   // 有内容时显示iframe预览 - 无外框
-                  <div className={`w-full h-full transition-all duration-300`}>
-                    <iframe ref={iframeRef} srcDoc={buildPreviewDoc(content)} className="w-full h-full border-0 block bg-white" title="网站预览" />
+                  <div
+                    className={`transition-all duration-300 ${getViewportClasses()} ${deviceMode === 'desktop' ? '' : 'mx-auto overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm'}`}
+                  >
+                    <iframe
+                      ref={iframeRef}
+                      srcDoc={buildPreviewDoc(content)}
+                      className="w-full h-full border-0 block bg-white"
+                      title="网站预览"
+                    />
                   </div>
                 ) : (
                   // 无内容时显示静态占位符
@@ -622,6 +872,71 @@ export function AIEditorWithNewUI() {
             </TabsContent>
           </Tabs>
         </div>
+        <Dialog
+          open={deployDialogOpen}
+          onOpenChange={(open) => {
+            if (isDeploying) return;
+            setDeployDialogOpen(open);
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>绑定域名后即可一键部署</DialogTitle>
+              <DialogDescription>
+                填写要绑定的域名并提交部署请求，我们将在后台自动完成构建与上线。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
+                  <Globe2 className="w-4 h-4 text-emerald-500" />
+                  自定义域名
+                </label>
+                <div className="relative">
+                  <Globe2 className="absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    value={deployDomain}
+                    onChange={(event) => setDeployDomain(event.target.value)}
+                    placeholder="例如：www.example.com"
+                    className="pl-9"
+                    disabled={isDeploying}
+                  />
+                </div>
+                <p className="text-xs text-gray-500">
+                  请确保域名的 A 记录已指向部署服务器，部署完成后可在“部署管理”中查看状态。
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                onClick={() => setDeployDialogOpen(false)}
+                disabled={isDeploying}
+                className={previewButtonClass}
+              >
+                <span className="relative z-10">取消</span>
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={handleDeployConfirm}
+                disabled={isDeploying}
+                className={deployButtonClass}
+              >
+                {isDeploying ? (
+                  <>
+                    <Loader2 className="relative z-10 w-4 h-4 animate-spin" />
+                    <span className="relative z-10">部署中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Rocket className="relative z-10 w-4 h-4 transition-transform duration-200 group-hover:scale-110" />
+                    <span className="relative z-10">部署</span>
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         {composeOpen && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setComposeOpen(false)}>
             <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 overflow-y-auto max-h-[90vh]" onClick={(e)=>e.stopPropagation()}>

@@ -1,0 +1,136 @@
+import { test, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { getTemplateSummaries, refreshTemplateSummaryCache, __testing } from '../../templateIndex';
+
+const prismaStub = {
+  template: {
+    findMany: async () => [] as any,
+  },
+} as any;
+
+beforeEach(() => {
+  __testing.resetCache();
+  __testing.setCacheTtl(5 * 60 * 1000);
+  __testing.setPrismaClient(prismaStub);
+});
+
+afterEach(() => {
+  __testing.resetCache();
+  __testing.resetPrismaClient();
+});
+
+test('getTemplateSummaries derives summary and key fields', async () => {
+  prismaStub.template.findMany = async () => [
+    {
+      id: 'tpl-1',
+      slug: 'hero-banner',
+      name: 'Hero Banner',
+      type: 'component',
+      engine: 'react',
+      version: '1.0.0',
+      tags: ['hero', 'landing'],
+      description: '适用于产品落地页的首屏展示模块',
+      schemaJson: {
+        properties: {
+          title: {},
+          subtitle: {},
+          cta: {},
+        },
+      },
+      updatedAt: new Date('2024-01-01T00:00:00.000Z'),
+    },
+  ] as any;
+
+  const result = await getTemplateSummaries();
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0].summary, '适用于产品落地页的首屏展示模块');
+  assert.deepEqual(result.items[0].keyFields, ['title', 'subtitle', 'cta']);
+});
+
+test('getTemplateSummaries caches results until refreshed', async () => {
+  let callCount = 0;
+  let templates: any[] = [
+    {
+      id: 'tpl-1',
+      slug: 'hero-banner',
+      name: 'Hero Banner',
+      type: 'component',
+      engine: 'react',
+      version: '1.0.0',
+      tags: ['hero'],
+      description: 'desc-1',
+      schemaJson: {},
+      updatedAt: new Date('2024-01-01T00:00:00.000Z'),
+    },
+  ];
+
+  prismaStub.template.findMany = async () => {
+    callCount += 1;
+    return templates;
+  };
+
+  const first = await getTemplateSummaries();
+  assert.equal(first.items[0].summary, 'desc-1');
+  const second = await getTemplateSummaries();
+  assert.equal(callCount, 1);
+  assert.equal(second.items[0].summary, 'desc-1');
+
+  templates = [
+    {
+      id: 'tpl-1',
+      slug: 'hero-banner',
+      name: 'Hero Banner v2',
+      type: 'component',
+      engine: 'react',
+      version: '1.1.0',
+      tags: ['hero'],
+      description: 'desc-2',
+      schemaJson: {},
+      updatedAt: new Date('2024-01-02T00:00:00.000Z'),
+    },
+  ];
+
+  await refreshTemplateSummaryCache();
+  const refreshed = await getTemplateSummaries();
+  assert.equal(callCount, 2);
+  assert.equal(refreshed.items[0].summary, 'desc-2');
+});
+
+test('getTemplateSummaries applies tag and keyword filters', async () => {
+  __testing.resetCache();
+  prismaStub.template.findMany = async () => [
+    {
+      id: 'tpl-hero',
+      slug: 'hero-banner',
+      name: 'Hero Banner',
+      type: 'component',
+      engine: 'react',
+      version: '1.0.0',
+      tags: ['hero'],
+      description: 'Hero section summary',
+      schemaJson: {},
+      updatedAt: new Date('2024-01-01T00:00:00.000Z'),
+    },
+    {
+      id: 'tpl-pricing',
+      slug: 'pricing-table',
+      name: 'Pricing Table',
+      type: 'component',
+      engine: 'react',
+      version: '1.0.0',
+      tags: ['pricing'],
+      description: '定价模块摘要',
+      schemaJson: {},
+      updatedAt: new Date('2024-01-01T00:00:00.000Z'),
+    },
+  ] as any;
+
+  const tagFiltered = await getTemplateSummaries({ tag: 'hero' });
+  assert.equal(tagFiltered.total, 1);
+  assert.equal(tagFiltered.items[0].slug, 'hero-banner');
+
+  const keywordFiltered = await getTemplateSummaries({ keyword: '定价' });
+  assert.equal(keywordFiltered.total, 1);
+  assert.equal(keywordFiltered.items[0].slug, 'pricing-table');
+});

@@ -1,0 +1,21 @@
+{
+  "id": "approval_1758096587228_cr5g0dc9x",
+  "title": "Tasks - template-automation-execution",
+  "filePath": ".spec-workflow/specs/template-automation-execution/tasks.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2025-09-17T08:09:47.228Z",
+  "category": "spec",
+  "categoryName": "template-automation-execution",
+  "response": "Feedback Summary (1 comments):\n\nGeneral Comments:\n1. 需要将六大阶段拆解的更加详细的的任务，细化到每个细小功能的实现，越详细越好，需要按以下格式生成文档，1  1.1 1.2 1.3  2  2.1 2.2 等\n\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"general\",\n      \"comment\": \"需要将六大阶段拆解的更加详细的的任务，细化到每个细小功能的实现，越详细越好，需要按以下格式生成文档，1  1.1 1.2 1.3  2  2.1 2.2 等\",\n      \"timestamp\": \"2025-09-17T08:12:43.261Z\",\n      \"id\": \"comment_1758096763261_0n0m9x88k\"\n    }\n  ],\n  \"summary\": \"Feedback Summary (1 comments):\\n\\nGeneral Comments:\\n1. 需要将六大阶段拆解的更加详细的的任务，细化到每个细小功能的实现，越详细越好，需要按以下格式生成文档，1  1.1 1.2 1.3  2  2.1 2.2 等\\n\\n\",\n  \"timestamp\": \"2025-09-17T08:12:45.860Z\"\n}",
+  "respondedAt": "2025-09-17T08:12:45.871Z",
+  "comments": [
+    {
+      "type": "general",
+      "comment": "需要将六大阶段拆解的更加详细的的任务，细化到每个细小功能的实现，越详细越好，需要按以下格式生成文档，1  1.1 1.2 1.3  2  2.1 2.2 等",
+      "timestamp": "2025-09-17T08:12:43.261Z",
+      "id": "comment_1758096763261_0n0m9x88k"
+    }
+  ]
+}

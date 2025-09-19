@@ -26,6 +26,9 @@ import adminRoutes from './routes/admin';
 import { uploadsRouter } from './routes/uploads';
 import notificationsRoutes from './routes/notifications';
 import templateRoutes from './routes/templates';
+import promptsRoutes from './routes/prompts';
+import metricsRoutes from './routes/metrics';
+import { attachTemplateImportListeners } from './services/templateIndex/cacheRefresher';
 // import screenshotRoutes from './routes/screenshots';
 
 // Global error handlers for unhandled promises and exceptions
@@ -100,14 +103,17 @@ async function startServer() {
   // Body parsing
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  app.use(express.text({ type: ['text/plain', 'text/markdown'], limit: '5mb' }));
   
     // Initialize database with retry logic (do not crash app if DB is down in dev)
     try {
-      await initDatabaseWithRetry();
+    await initDatabaseWithRetry();
     } catch (err) {
       logger.error('Database initialization failed. Continuing to start server so that frontend can load.');
     }
-  
+
+  attachTemplateImportListeners();
+
   // Routes
   app.use('/api/auth', authRoutes);
   app.use('/api/websites', websiteRoutes);
@@ -121,6 +127,8 @@ async function startServer() {
   app.use('/api/uploads', uploadsRouter);
   app.use('/api/notifications', notificationsRoutes);
   app.use('/api/templates', templateRoutes);
+  app.use('/api/prompts', promptsRoutes);
+  app.use('/api/metrics', metricsRoutes);
   
   // 预览静态站点：/preview/website/:id/* -> SITES_ROOT/:id/*
   const path = require('path');

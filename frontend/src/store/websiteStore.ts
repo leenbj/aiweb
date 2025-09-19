@@ -151,7 +151,20 @@ export const useWebsiteStore = create<WebsiteState>((set, get) => ({
       
       return website as Website;
     } catch (error: any) {
-      const message = error.response?.data?.error || '获取网站失败';
+      const status = error?.response?.status;
+      const message = error?.response?.data?.error || error?.message || '获取网站失败';
+
+      if (status === 404 || message.includes('Website not found')) {
+        set({ currentWebsite: null });
+        try {
+          localStorage.removeItem('editing-website-id');
+        } catch {}
+
+        const notFoundError = new Error('Website not found');
+        (notFoundError as any).code = 'WEBSITE_NOT_FOUND';
+        throw notFoundError;
+      }
+
       toast.error(message);
       throw error;
     }
